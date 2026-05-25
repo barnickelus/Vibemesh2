@@ -2,142 +2,234 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>VibeMesh | Geometry in Time</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>VibeMesh · Geometry in Time</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#000;color:#fff;font-family:monospace;overflow:hidden;width:100vw;height:100vh}
-
-canvas{position:fixed;top:0;left:0;width:100%;height:100%}
-
-/* ── HUD ── */
-.hud{
-  position:fixed;bottom:0;left:0;right:0;
-  display:flex;justify-content:space-between;align-items:flex-end;
-  padding:20px 24px;pointer-events:none;z-index:50;
+:root{
+  --cyan:#00f0ff; --mag:#ff00aa; --grn:#00ff88; --amber:#ffaa00;
+  --dim:#3a3a44; --dim2:#555; --bg:#040407;
+  --mono:'SF Mono',ui-monospace,Consolas,monospace;
 }
-.hud-left{display:flex;flex-direction:column;gap:8px;pointer-events:all}
-.hud-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;pointer-events:all}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;overflow:hidden}
+body{
+  background:radial-gradient(circle at 50% 35%,#0b0b14 0%,var(--bg) 75%);
+  color:#e8e8ee;font-family:var(--mono);
+  position:fixed;touch-action:none;
+}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+/* ── Top status strip ── */
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:30;
+  display:flex;justify-content:space-between;align-items:center;
+  padding:10px 14px;font-size:.55rem;letter-spacing:2px;text-transform:uppercase;
+  pointer-events:none;
+}
+.topbar .brand{color:var(--cyan);font-weight:600}
+.topbar .brand b{color:#fff;font-weight:800}
+.topbar .telem{color:var(--dim2);text-align:right;line-height:1.7}
+.topbar .telem b{color:var(--cyan);font-weight:600}
+.topbar .telem .good{color:var(--grn)}
+
+/* ── Lore line ── */
+.lore{
+  position:fixed;top:50%;left:0;right:0;text-align:center;z-index:5;
+  font-size:.6rem;letter-spacing:4px;text-transform:uppercase;color:#15151c;
+  pointer-events:none;transition:opacity 1s;transform:translateY(-50%);
+}
+
+/* ── Bottom control dock ── */
+.dock{
+  position:fixed;bottom:0;left:0;right:0;z-index:30;
+  padding:14px 14px calc(14px + env(safe-area-inset-bottom));
+  background:linear-gradient(transparent,rgba(4,4,7,.85)35%);
+  display:flex;flex-direction:column;gap:12px;
+}
+.row{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.row.center{justify-content:center}
 
 .btn{
-  padding:9px 16px;background:rgba(0,0,0,.7);color:#333;
-  border:1px solid #111;border-radius:5px;
-  font-family:monospace;font-size:.65rem;letter-spacing:2px;
-  cursor:pointer;transition:all .25s;text-transform:uppercase;
-  backdrop-filter:blur(8px);
+  flex:0 0 auto;padding:10px 14px;background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.1);border-radius:9px;color:#aaa;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:1.5px;text-transform:uppercase;
+  cursor:pointer;transition:.18s;white-space:nowrap;
 }
-.btn:hover:not(:disabled){color:#00f0ff;border-color:rgba(0,240,255,.3);background:rgba(0,240,255,.04)}
-.btn.on{color:#00f0ff;border-color:rgba(0,240,255,.5);background:rgba(0,240,255,.06);box-shadow:0 0 20px rgba(0,240,255,.1)}
-.btn.snap-on{color:#ff00ff;border-color:rgba(255,0,255,.5);background:rgba(255,0,255,.06);box-shadow:0 0 20px rgba(255,0,255,.1)}
-.btn:disabled{opacity:.25;cursor:not-allowed}
+.btn:active{transform:scale(.96)}
+.btn.on{background:rgba(0,240,255,.14);border-color:var(--cyan);color:var(--cyan);
+  box-shadow:0 0 18px rgba(0,240,255,.18)}
+.btn.go{background:rgba(0,255,136,.13);border-color:var(--grn);color:var(--grn)}
+.btn.warn{background:rgba(255,0,170,.12);border-color:var(--mag);color:var(--mag)}
+.btn:disabled{opacity:.28;pointer-events:none}
+.btn.primary{background:linear-gradient(135deg,rgba(0,240,255,.2),rgba(255,0,170,.15));
+  border-color:var(--cyan);color:#fff}
 
-.sl-row{display:flex;align-items:center;gap:10px;pointer-events:all}
-.sl-row label{font-size:.55rem;color:#333;letter-spacing:2px;text-transform:uppercase;min-width:100px}
-.sl-row input{accent-color:#00f0ff;width:100px;cursor:pointer}
-.sl-row span{font-size:.55rem;color:#00f0ff;min-width:32px;text-align:right}
+/* mode pills */
+.pill{
+  flex:0 0 auto;padding:7px 11px;background:rgba(255,255,255,.03);
+  border:1px solid rgba(255,255,255,.08);border-radius:20px;color:var(--dim2);
+  font-family:var(--mono);font-size:.56rem;letter-spacing:1px;text-transform:uppercase;
+  cursor:pointer;transition:.15s;
+}
+.pill:active{transform:scale(.95)}
+.pill.on{background:rgba(0,240,255,.12);border-color:rgba(0,240,255,.45);color:var(--cyan)}
 
-.lore{
-  position:fixed;top:0;left:0;right:0;
-  padding:16px 24px;
-  font-size:.5rem;color:#1a1a1a;letter-spacing:3px;text-transform:uppercase;
-  pointer-events:none;z-index:50;line-height:2;
-}
-.stat{
-  position:fixed;top:12px;right:24px;
-  font-size:.5rem;color:#111;letter-spacing:2px;
-  pointer-events:none;z-index:50;text-align:right;line-height:2;
-}
-.pip{
-  position:fixed;bottom:20px;right:24px;
-  width:60px;height:76px;border-radius:4px;overflow:hidden;
-  border:1px solid #111;opacity:.4;z-index:60;
-  transition:opacity .3s;
-}
-.pip:hover{opacity:.8}
+/* sliders */
+.sliders{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+@media(max-width:520px){.sliders{grid-template-columns:1fr}}
+.sl{display:flex;align-items:center;gap:9px}
+.sl label{font-size:.52rem;letter-spacing:1px;text-transform:uppercase;color:var(--dim2);
+  min-width:78px}
+.sl input{flex:1;-webkit-appearance:none;height:2px;background:rgba(255,255,255,.15);
+  border-radius:2px;cursor:pointer}
+.sl input::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--cyan);box-shadow:0 0 8px var(--cyan);cursor:pointer}
+.sl input::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--cyan);
+  border:none;box-shadow:0 0 8px var(--cyan)}
+.sl .v{font-size:.55rem;color:var(--cyan);min-width:30px;text-align:right}
+
+.collapse{max-height:0;overflow:hidden;transition:max-height .35s ease}
+.collapse.open{max-height:240px}
+
+.pip{position:fixed;right:12px;z-index:31;width:62px;height:80px;border-radius:8px;
+  overflow:hidden;border:1px solid rgba(255,255,255,.12);opacity:.5;
+  bottom:calc(170px + env(safe-area-inset-bottom));transition:opacity .3s}
+.pip:active{opacity:.9}
 .pip video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+video#cam{position:fixed;top:-9999px;left:-9999px;width:640px;height:480px}
 
-video{display:none}
+.hint{position:fixed;left:0;right:0;bottom:calc(180px + env(safe-area-inset-bottom));
+  text-align:center;font-size:.52rem;letter-spacing:1px;color:var(--amber);
+  z-index:20;pointer-events:none;opacity:0;transition:opacity .4s;text-transform:uppercase}
+.hint.show{opacity:.85}
 </style>
 </head>
 <body>
+<canvas id="gl"></canvas>
 
-<div class="lore" id="lore">
-  geometry in time · stable knots · compressed · stretched · folded
-</div>
-<div class="stat" id="stat">
-  — knots · — hz
-</div>
-
-<div class="hud">
-  <div class="hud-left">
-    <div style="display:flex;gap:8px">
-      <button class="btn" id="btn-init" onclick="initSystem()" disabled>Loading deps…</button>
-      <button class="btn" id="btn-snap" onclick="snap()" disabled>Stabilise Field</button>
-      <button class="btn" id="btn-live" onclick="toggleLive()" disabled>Live Knots</button>
-    </div>
-
-    <div class="sl-row">
-      <label>Compression</label>
-      <input type="range" min="0.5" max="8" step="0.1" value="3.5" id="sl-depth"
-        oninput="depthScale=+this.value;document.getElementById('lbl-d').textContent=this.value">
-      <span id="lbl-d">3.5</span>
-    </div>
-    <div class="sl-row">
-      <label>Knot Density</label>
-      <input type="range" min="1" max="4" step="1" value="3" id="sl-dens"
-        oninput="setDensity(+this.value)">
-      <span id="lbl-dens">3</span>
-    </div>
-    <div class="sl-row">
-      <label>Grid Density</label>
-      <input type="range" min="4" max="28" step="1" value="14" id="sl-grid"
-        oninput="gridDensity=+this.value;document.getElementById('lbl-grid').textContent=this.value;rebuildSkin()">
-      <span id="lbl-grid">14</span>
-    </div>
-    <div class="sl-row">
-      <label>Knot Amount</label>
-      <input type="range" min="50" max="936" step="10" value="936"
-        oninput="knotAmount=+this.value;document.getElementById('lbl-ka').textContent=this.value;if(latestLM)buildKnotSystem(latestLM,snapColors)">
-      <span id="lbl-ka">936</span>
-    </div>
-    <div class="sl-row">
-      <label>Pulse Rate</label>
-      <input type="range" min="0" max="3" step="0.05" value="0.8" id="sl-pulse"
-        oninput="pulseRate=+this.value;document.getElementById('lbl-p').textContent=this.value">
-      <span id="lbl-p">0.8</span>
-    </div>
-    <div class="sl-row">
-      <label>Field Opacity</label>
-      <input type="range" min="0.1" max="1" step="0.05" value="0.85" id="sl-op"
-        oninput="fieldOpacity=+this.value;document.getElementById('lbl-op').textContent=this.value">
-      <span id="lbl-op">0.85</span>
-    </div>
-  </div>
-  <div class="hud-right">
-    <!-- mode toggles -->
-    <div style="display:flex;gap:6px">
-      <button class="btn"     id="mb-knots"   onclick="setView('knots')">Knots</button>
-      <button class="btn"     id="mb-field"   onclick="setView('field')">Field</button>
-      <button class="btn"     id="mb-fabric"  onclick="setView('fabric')">Fabric</button>
-      <button class="btn"     id="mb-realist" onclick="setView('realist')">Realist</button>
-      <button class="btn on"  id="mb-skin"    onclick="setView('skin')">Skin</button>
-      <button class="btn"     id="mb-stack"   onclick="toggleStack()">Stack</button>
-    </div>
+<div class="topbar">
+  <div class="brand">VIBE<b>MESH</b></div>
+  <div class="telem" id="telem">
+    <div>TRACK <b id="t-track">—</b></div>
+    <div>POSE <b id="t-pose">—</b> · <b id="t-fps">0</b>fps</div>
+    <div>TX <b id="t-bw" class="good">0</b></div>
   </div>
 </div>
 
-<div class="pip"><video id="pipVid" autoplay muted playsinline></video></div>
-<video id="camFeed" autoplay muted playsinline></video>
+<div class="lore" id="lore">atoms aren't particles · stable knots in time</div>
+<div class="hint" id="hint"></div>
+
+<div class="pip"><video id="pip" autoplay muted playsinline></video></div>
+<video id="cam" autoplay muted playsinline></video>
+
+<div class="dock">
+  <div class="row center" id="modes">
+    <div class="pill on" data-mode="knots">Knots</div>
+    <div class="pill" data-mode="splat">Splat</div>
+    <div class="pill" data-mode="skin">Skin</div>
+    <div class="pill" data-mode="realist">Realist</div>
+    <div class="pill" data-mode="wire">Wire</div>
+  </div>
+
+  <div class="collapse" id="advpanel">
+    <div class="sliders">
+      <div class="sl"><label>Depth</label><input type="range" id="s-depth" min="0.5" max="8" step="0.1" value="3.5"><span class="v" id="v-depth">3.5</span></div>
+      <div class="sl"><label>Knot Amt</label><input type="range" id="s-amt" min="80" max="936" step="20" value="936"><span class="v" id="v-amt">936</span></div>
+      <div class="sl"><label>Pulse</label><input type="range" id="s-pulse" min="0" max="3" step="0.05" value="0.8"><span class="v" id="v-pulse">0.8</span></div>
+      <div class="sl"><label>Grid</label><input type="range" id="s-grid" min="4" max="30" step="1" value="14"><span class="v" id="v-grid">14</span></div>
+      <div class="sl"><label>Opacity</label><input type="range" id="s-op" min="0.1" max="1" step="0.05" value="0.9"><span class="v" id="v-op">0.9</span></div>
+      <div class="sl"><label>Smooth</label><input type="range" id="s-smooth" min="0.05" max="0.8" step="0.05" value="0.35"><span class="v" id="v-smooth">0.35</span></div>
+    </div>
+  </div>
+
+  <div class="row center">
+    <button class="btn primary" id="b-init">Init Optics</button>
+    <button class="btn" id="b-snap" disabled>Calibrate</button>
+    <button class="btn" id="b-stack">Stack</button>
+    <button class="btn" id="b-adv">Tune</button>
+    <button class="btn" id="b-recenter" disabled>Recenter</button>
+  </div>
+</div>
 
 <script>
 'use strict';
+// ═══════════════════════════════════════════════════════════════
+//  VibeMesh — reworked core
+//  1. FIXED normalization captured at calibration (no per-frame drift)
+//  2. Rigid head pose via quaternion Kabsch (Horn's method)
+//  3. Expression = residual after removing rigid pose
+//  4. All visual modes share ONE stable point buffer
+// ═══════════════════════════════════════════════════════════════
 
-// ════════════════════════════════════════════════
-//  MEDIAPIPE TESSELLATION
-//  ~460 triangles from the face mesh
-// ════════════════════════════════════════════════
+const V = {
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  norm:a=>{const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];},
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+};
+
+const RIGID_IDX = [33,263,1,168,6,197,195,5,4,193,417,122,351,234,454];
+const OVAL_IDX = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,
+  379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
+
+// ---- Horn's quaternion method for optimal rotation P -> Q ----
+// Returns rotation matrix (row-major 9) that best maps centered P onto Q.
+function kabsch(P, Q){
+  // Cross-covariance M = sum p_i q_i^T
+  let Sxx=0,Sxy=0,Sxz=0,Syx=0,Syy=0,Syz=0,Szx=0,Szy=0,Szz=0;
+  for(let i=0;i<P.length;i++){
+    const p=P[i], q=Q[i];
+    Sxx+=p[0]*q[0]; Sxy+=p[0]*q[1]; Sxz+=p[0]*q[2];
+    Syx+=p[1]*q[0]; Syy+=p[1]*q[1]; Syz+=p[1]*q[2];
+    Szx+=p[2]*q[0]; Szy+=p[2]*q[1]; Szz+=p[2]*q[2];
+  }
+  // Symmetric 4x4 N matrix (Horn 1987)
+  const N=[
+    [Sxx+Syy+Szz, Syz-Szy,      Szx-Sxz,      Sxy-Syx],
+    [Syz-Szy,     Sxx-Syy-Szz,  Sxy+Syx,      Szx+Sxz],
+    [Szx-Sxz,     Sxy+Syx,      -Sxx+Syy-Szz, Syz+Szy],
+    [Sxy-Syx,     Szx+Sxz,      Syz+Szy,      -Sxx-Syy+Szz]
+  ];
+  // Largest eigenvector via power iteration (4x4, converges fast)
+  let v=[1,0,0,0];
+  for(let it=0;it<32;it++){
+    const nv=[
+      N[0][0]*v[0]+N[0][1]*v[1]+N[0][2]*v[2]+N[0][3]*v[3],
+      N[1][0]*v[0]+N[1][1]*v[1]+N[1][2]*v[2]+N[1][3]*v[3],
+      N[2][0]*v[0]+N[2][1]*v[1]+N[2][2]*v[2]+N[2][3]*v[3],
+      N[3][0]*v[0]+N[3][1]*v[1]+N[3][2]*v[2]+N[3][3]*v[3]
+    ];
+    const l=Math.hypot(nv[0],nv[1],nv[2],nv[3])||1;
+    v=[nv[0]/l,nv[1]/l,nv[2]/l,nv[3]/l];
+  }
+  // quaternion (w,x,y,z) -> rotation matrix
+  const [w,x,y,z]=v;
+  return [
+    1-2*(y*y+z*z), 2*(x*y-w*z),   2*(x*z+w*y),
+    2*(x*y+w*z),   1-2*(x*x+z*z), 2*(y*z-w*x),
+    2*(x*z-w*y),   2*(y*z+w*x),   1-2*(x*x+y*y)
+  ];
+}
+function mat3mulVec(m,v){
+  return [m[0]*v[0]+m[1]*v[1]+m[2]*v[2],
+          m[3]*v[0]+m[4]*v[1]+m[5]*v[2],
+          m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];
+}
+function transpose(m){return [m[0],m[3],m[6],m[1],m[4],m[7],m[2],m[5],m[8]];}
+function matToEuler(m){
+  const pitch=Math.asin(Math.max(-1,Math.min(1,-m[7])));
+  const yaw=Math.atan2(m[6],m[8]);
+  const roll=Math.atan2(m[1],m[4]);
+  const d=180/Math.PI;
+  return [yaw*d,pitch*d,roll*d];
+}
+
+// ═══ MediaPipe Face Tessellation ═══
 const TESS = [
   [127,34,139],[11,0,37],[232,231,120],[72,37,39],[128,121,47],[232,120,100],
   [213,215,138],[149,170,176],[209,198,92],[2,94,141],[49,64,98],[173,139,247],
@@ -182,1278 +274,631 @@ const TESS = [
   [381,380,374],[380,374,373],[374,373,390],[373,390,249],[390,249,263],
 ];
 
-// ════════════════════════════════════════════════
-//  SPLAT VERTEX SHADER — instanced billboard quads
-//
-//  Each landmark/centroid is a quad billboard that:
-//  • faces the camera (billboard)
-//  • is foreshortened along the direction the surface tilts away
-//  • breathes in Z with a per-knot phase offset
-//
-//  Non-instanced attrs: position (quad corner), aUV (-1..1)
-//  Instanced attrs:     iPos, iNorm, iSize, iCol, iComp, iPhase, iCent
-// ════════════════════════════════════════════════
-const SPLAT_VERT = `
-  attribute vec2  aUV;
-  attribute vec3  iPos;
-  attribute vec3  iNorm;
-  attribute float iSize;
-  attribute vec3  iCol;
-  attribute float iComp;
-  attribute float iPhase;
-  attribute float iCent;
-
-  varying vec2  vUV;
-  varying vec3  vCol;
-  varying float vComp;
-  varying float vPhase;
-  varying float vCent;
-
-  uniform float uTime;
-  uniform float uPulse;
-
-  void main(){
-    vUV   = aUV;
-    vCol  = iCol;
-    vComp = iComp;
-    vPhase= iPhase;
-    vCent = iCent;
-
-    // Splat centre in view space
-    vec4 cv = modelViewMatrix * vec4(iPos, 1.0);
-
-    // Surface normal in view space
-    vec3 nv = normalize((modelViewMatrix * vec4(iNorm, 0.0)).xyz);
-
-    // Foreshortening factor: 1.0 = fully facing camera, 0.12 minimum
-    float fore = clamp(abs(nv.z), 0.12, 1.0);
-
-    // Screen-space compression direction (projection of normal onto screen XY)
-    float nsLen   = length(nv.xy);
-    vec2  compDir = nsLen > 0.01 ? nv.xy / nsLen : vec2(0.0, 1.0);
-    vec2  perpDir = vec2(-compDir.y, compDir.x);
-
-    // Decompose quad UV into parallel / perpendicular components
-    float along = dot(aUV, compDir);
-    float perp  = dot(aUV, perpDir);
-
-    // Compress along the surface-tilt direction, keep perp full-size
-    vec2 scaledUV = compDir * along * fore + perpDir * perp;
-
-    // Breathing pulse
-    float pulse = 1.0 + sin(uTime * uPulse + iPhase) * 0.14 * iComp;
-    float sz    = iSize * (0.45 + iComp * 0.55) * pulse;
-
-    vec3 offset = vec3(scaledUV * sz, 0.0);
-    gl_Position = projectionMatrix * (cv + vec4(offset, 0.0));
-  }
-`;
-
-// ════════════════════════════════════════════════
-//  SPLAT FRAGMENT SHADER — 3D Gaussian + RGB ring bands
-//
-//  Gaussian envelope gives the volumetric feel.
-//  RGB ring bands inside the Gaussian encode face color
-//  as physical wave frequency/amplitude — optical mixing
-//  happens visually between adjacent colored stripes.
-// ════════════════════════════════════════════════
-const SPLAT_FRAG = `
-  varying vec2  vUV;
-  varying vec3  vCol;
-  varying float vComp;
-  varying float vPhase;
-  varying float vCent;
-
-  uniform float uTime;
-  uniform float uPulse;
-  uniform float uOpacity;
-
-  void main(){
-    float d = length(vUV);   // 0=centre, 1.41 at corner
-    if(d > 1.0) discard;     // circular cutout
-
-    // ── 3D Gaussian envelope — tight, not spread ──
-    float gaussian = exp(-d * d * 7.5);   // was 2.8 — much tighter falloff
-
-    // Ring distance: 1 at centre, 0 at edge
-    float r = 1.0 - d;
-
-    // ── Per-channel ring bands ──
-    float rA = vCol.r, gA = vCol.g, bA = vCol.b;
-
-    float rCount = max(1.0, floor(rA * (2.0 + vComp * 2.0)));
-    float gCount = max(1.0, floor(gA * (3.0 + vComp * 3.0)));
-    float bCount = max(1.0, floor(bA * (4.0 + vComp * 5.0)));
-
-    float rPos = fract(r * rCount + uTime * uPulse * 0.50 + vPhase * 0.15);
-    float gPos = fract(r * gCount + uTime * uPulse * 1.00 + vPhase * 0.12);
-    float bPos = fract(r * bCount + uTime * uPulse * 1.80 + vPhase * 0.10);
-
-    // Narrower bands = more gap between rings = more contrast
-    float bw    = 0.42 + vComp * 0.06;  // was 0.58 — tighter bands
-    float rBand = step(rPos, bw) * rA * rA * 2.0;  // boosted amplitude
-    float gBand = step(gPos, bw) * gA * gA * 1.8;
-    float bBand = step(bPos, bw) * bA * bA * 1.6;
-
-    // Fully saturated channel colours
-    vec3 col = vec3(0.0);
-    col += vec3(1.5, 0.03, 0.0 ) * rBand;
-    col += vec3(0.03, 1.3, 0.06) * gBand;
-    col += vec3(0.0,  0.12, 1.6) * bBand;
-
-    // ── Core: tight, bright, true face colour ──
-    float core = exp(-d * d * 120.0) * (0.7 + vComp * 0.3);  // was 50 — much tighter
-    col += vCol * core * 2.2;
-
-    // ── Thin halo ring at face colour — edge definition ──
-    float halo = exp(-pow(d - 0.82, 2.0) * 80.0) * 0.25;  // narrower, dimmer
-    col += vCol * halo;
-
-    // ── Depth brightness ── 
-    col *= 0.45 + vComp * 0.55;
-
-    // ── Centroids: clearly dimmer so landmarks dominate ──
-    if(vCent > 0.5){
-      col  = mix(col, col * vec3(0.6, 0.82, 1.05), 0.35);
-      col *= 0.5;   // was 0.65 — more separation
-    }
-
-    // ── Alpha: tight Gaussian × luminance, no extra multiplier ──
-    float lum   = dot(col, vec3(0.299, 0.587, 0.114));
-    float alpha = lum * gaussian * uOpacity;  // removed the +0.04 floor that caused wash
-
-    if(alpha < 0.008) discard;
-    gl_FragColor = vec4(col, alpha);
-  }
-`;
-
-// ════════════════════════════════════════════════
-//  KNOT FRAGMENT SHADER — THICK RING BANDS
-//
-//  Each knot is divided into discrete ring slots.
-//  Ring count per channel set by color amplitude:
-//    R → low count (1-3 rings), outermost position
-//    G → mid count (2-4 rings), middle position
-//    B → high count (3-6 rings), innermost position
-//
-//  Each ring is a solid thick band (~18% of radius).
-//  Rings are fully saturated so optical mixing happens
-//  visually between adjacent bands — not mathematically.
-//
-//  A warm skin tone → orange outer rings, green middle, teal inner
-//  A cool shadow → blue/teal dense rings
-//  Bright highlight → all channels dense, white interference core
-// ════════════════════════════════════════════════
-// ════════════════════════════════════════════════
-//  FIELD SHADER — density blobs with channel-frequency widths
-// ════════════════════════════════════════════════
-const FIELD_FRAG = `
-  varying vec2  vUV;
-  varying vec3  vCol;
-  varying float vComp;
-  varying float vPhase;
-  varying float vCent;
-
-  uniform float uTime;
-  uniform float uPulse;
-  uniform float uOpacity;
-
-  void main(){
-    vec2  uv = vUV * 0.5;
-    float d  = length(uv);
-    if(d > 0.5) discard;
-
-    // Each channel gets its own gaussian width — red spreads wide, blue tight
-    float rBlob = exp(-d*d * (8.0  + vComp*10.0)) * vCol.r;
-    float gBlob = exp(-d*d * (14.0 + vComp*16.0)) * vCol.g;
-    float bBlob = exp(-d*d * (22.0 + vComp*24.0)) * vCol.b;
-
-    // Pulse each channel at its own rate
-    rBlob *= 1.0 + sin(uTime * uPulse * 0.7 + vPhase       ) * 0.25;
-    gBlob *= 1.0 + sin(uTime * uPulse * 1.2 + vPhase + 2.09) * 0.25;
-    bBlob *= 1.0 + sin(uTime * uPulse * 2.0 + vPhase + 4.19) * 0.25;
-
-    vec3 col = vec3(
-      rBlob * 1.1 + gBlob * 0.05,
-      gBlob * 1.1 + rBlob * 0.05 + bBlob * 0.1,
-      bBlob * 1.2 + gBlob * 0.1
-    );
-    col *= (0.4 + vComp * 0.6);
-
-    float alpha = length(col) * uOpacity * smoothstep(0.5, 0.0, d);
-    if(alpha < 0.005) discard;
-    gl_FragColor = vec4(col, alpha);
-  }
-`;
-
-// ════════════════════════════════════════════════
-//  FABRIC SHADER — woven interference grid
-// ════════════════════════════════════════════════
-const FABRIC_FRAG = `
-  varying vec2  vUV;
-  varying vec3  vCol;
-  varying float vComp;
-  varying float vPhase;
-  varying float vCent;
-
-  uniform float uTime;
-  uniform float uPulse;
-  uniform float uOpacity;
-
-  void main(){
-    vec2  uv = vUV * 0.5;
-    float d  = length(uv);
-    if(d > 0.5) discard;
-
-    // Each channel weaves at its own grid frequency
-    // Red = coarse weave, blue = fine weave
-    float rFreq = 4.0  + vComp * 2.0;
-    float gFreq = 7.0  + vComp * 3.5;
-    float bFreq = 12.0 + vComp * 6.0;
-
-    float rWeave = pow(abs(sin(uv.x * rFreq * 3.14159 - uTime*uPulse*0.7+vPhase)),2.5)
-                 * pow(abs(sin(uv.y * rFreq * 3.14159 - uTime*uPulse*0.7+vPhase)),2.5);
-    float gWeave = pow(abs(sin(uv.x * gFreq * 3.14159 - uTime*uPulse*1.2+vPhase)),2.5)
-                 * pow(abs(sin(uv.y * gFreq * 3.14159 - uTime*uPulse*1.2+vPhase)),2.5);
-    float bWeave = pow(abs(sin(uv.x * bFreq * 3.14159 - uTime*uPulse*2.0+vPhase)),2.5)
-                 * pow(abs(sin(uv.y * bFreq * 3.14159 - uTime*uPulse*2.0+vPhase)),2.5);
-
-    vec3 col = vec3(
-      rWeave * vCol.r * 1.3,
-      gWeave * vCol.g * 1.2,
-      bWeave * vCol.b * 1.4
-    );
-    col *= (0.4 + vComp * 0.6);
-
-    float core = exp(-d*d*70.0) * vComp;
-    col += vCol * core;
-
-    float alpha = dot(col, vec3(0.333)) * uOpacity * smoothstep(0.5, 0.25, d);
-    if(alpha < 0.01) discard;
-    gl_FragColor = vec4(col, alpha);
-  }
-`;
-
-// ════════════════════════════════════════════════
-//  REALIST SHADER — mimetic Gaussian splat
-//
-//  No ring encoding. Pure face color in a tight
-//  anisotropic Gaussian — oriented along surface normal.
-//  Three tiers: landmark (large), centroid (medium),
-//  sub-centroid (small). Together they tile the face
-//  surface continuously like a 3DGS reconstruction.
-//
-//  Subtle specular highlight and depth-driven SSS
-//  (subsurface scatter approximation) for skin feel.
-// ════════════════════════════════════════════════
-const REALIST_FRAG = `
-  varying vec2  vUV;
-  varying vec3  vCol;
-  varying float vComp;
-  varying float vPhase;
-  varying float vCent;
-
-  uniform float uTime;
-  uniform float uPulse;
-  uniform float uOpacity;
-
-  void main(){
-    float d = length(vUV);
-    if(d > 1.0) discard;
-
-    // ── Gaussian envelope — crisp, not blurry ──
-    // 3.2 was far too gentle. 8.0 gives sharp splats with clean edges.
-    float g = exp(-d * d * 8.0);
-
-    // ── True face color, slight gamma lift for sRGB footage ──
-    vec3 col = pow(max(vCol, vec3(0.001)), vec3(0.88));
-
-    // ── Depth warmth: forward=warm, recessed=cool ──
-    vec3 warm = vec3(1.06, 0.97, 0.90);
-    vec3 cool = vec3(0.90, 0.95, 1.05);
-    col *= mix(cool, warm, vComp);
-
-    // ── Specular: tight bright peak on forward-facing splats only ──
-    float spec = exp(-d * d * 30.0) * vComp * vComp * 0.28;
-    col += vec3(spec * 1.1, spec * 0.95, spec * 0.85); // warm specular
-
-    // ── Tier dimming ──
-    if(vCent > 1.5){
-      col *= 0.80;
-    } else if(vCent > 0.5){
-      col *= 0.90;
-    }
-
-    // ── Vignette: smooth edge, no hard cutoff ──
-    float alpha = g * uOpacity;
-    if(alpha < 0.006) discard;
-    gl_FragColor = vec4(col, alpha);
-  }
-`;
-
-// ════════════════════════════════════════════════
-//  SKIN WRAP — vertex + fragment shaders
-//
-//  A continuous triangulated mesh over the 468 face
-//  landmarks. Per-vertex face color. Fragment shader
-//  tiles the mesh UV space with a repeating grid of
-//  geometric shapes — each cell colored by the
-//  interpolated face RGB at that surface point.
-//
-//  Shape mix: R channel → more circles
-//             G channel → more diamonds / hexagons
-//             B channel → more squares / triangles
-//  So the skin's own color determines which shapes appear.
-// ════════════════════════════════════════════════
-const SKIN_VERT = `
-  attribute vec3  vCol;     // per-vertex face color
-  attribute float vComp;    // depth compression 0-1
-
-  varying vec3  fCol;
-  varying float fComp;
-  varying vec3  fPos;       // world position for tiling
-  varying vec2  fUV;        // face-space UV for tiling
-
-  uniform float uTime;
-  uniform float uPulse;
-
-  void main(){
-    fCol  = vCol;
-    fComp = vComp;
-    fPos  = position;
-
-    // UV for tiling — Y now correct (forehead=+Y in world), so positive maps to top
-    fUV = vec2(position.x * 0.5 + 0.5, position.y * 0.5 + 0.5);
-
-    // Subtle breathing in Z
-    vec3 pos = position;
-    pos.z += sin(uTime * uPulse * 0.6 + position.x * 3.0 + position.y * 2.0) * 0.012 * vComp;
-
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-  }
-`;
-
-const SKIN_FRAG = `
-  varying vec3  fCol;
-  varying float fComp;
-  varying vec3  fPos;
-  varying vec2  fUV;
-
-  uniform float uTime;
-  uniform float uPulse;
-  uniform float uOpacity;
-  uniform float uGrid;
-
-  void main(){
-    // ── Tight cell grid — no gaps ──
-    vec2 scaled = fUV * uGrid;
-    vec2 cell   = floor(scaled);
-    vec2 p      = (scaled - cell - 0.5) * 2.0;  // -1..1 in cell space
-
-    // ── Per-cell stable hash ──
-    float h1 = fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
-    float h2 = fract(sin(dot(cell, vec2(269.5, 183.3))) * 17385.3124);
-
-    // ── Boost face color hard — video is dark ──
-    vec3 fc = max(fCol, vec3(0.05, 0.04, 0.03));
-    float lum = dot(fc, vec3(0.299, 0.587, 0.114));
-    fc = mix(vec3(lum), fc, 2.4);
-    fc = pow(clamp(fc, 0.001, 1.0), vec3(0.48));
-    fc = clamp(fc * 1.5, 0.0, 1.0);
-
-    // ── Dark cell background fills the whole square ──
-    // bg is dark version of face color — creates subtle hue in background
-    vec3 bg = fc * 0.12;
-
-    // ── Outer cell border — bright, full square perimeter ──
-    // |p| close to 1.0 on either axis = we're near the cell edge
-    float borderW = 0.10;
-    float borderX = 1.0 - smoothstep(0.0, borderW, 1.0 - abs(p.x));
-    float borderY = 1.0 - smoothstep(0.0, borderW, 1.0 - abs(p.y));
-    float border  = max(borderX, borderY);
-    // Border color: mix of face R and B channels — neon outline feel
-    vec3 borderCol = vec3(fc.r * 0.6, fc.g * 0.3, fc.b * 1.4);
-    borderCol = clamp(borderCol * 2.0, 0.0, 1.0);
-
-    // ── Crosshair arms — thin lines through center ──
-    float armW   = 0.04;
-    float armX   = 1.0 - smoothstep(0.0, armW, abs(p.x));  // vertical arm
-    float armY   = 1.0 - smoothstep(0.0, armW, abs(p.y));  // horizontal arm
-    float arm    = max(armX, armY);
-    // Arms = face green channel dominant
-    vec3 armCol  = vec3(fc.r * 0.4, fc.g * 1.3, fc.b * 0.4);
-    armCol = clamp(armCol, 0.0, 1.0);
-
-    // ── Concentric rings around center ──
-    float d      = length(p);
-    // 3 rings at radii ~0.25, 0.50, 0.75
-    float ringW  = 0.045;
-    float r1 = 1.0 - smoothstep(0.0, ringW, abs(d - 0.26));
-    float r2 = 1.0 - smoothstep(0.0, ringW, abs(d - 0.52));
-    float r3 = 1.0 - smoothstep(0.0, ringW, abs(d - 0.78));
-    // Pulse ring 2 slightly
-    float pulse  = sin(uTime * uPulse * 1.2 + h1 * 6.28) * 0.5 + 0.5;
-    r2 *= 0.7 + pulse * 0.4;
-    // Ring colors: R, G, B channels drive ring 1, 2, 3 respectively
-    vec3 ring1Col = vec3(fc.r * 2.0, fc.g * 0.3, fc.b * 0.2);
-    vec3 ring2Col = vec3(fc.r * 0.2, fc.g * 2.0, fc.b * 0.3);
-    vec3 ring3Col = vec3(fc.r * 0.2, fc.g * 0.3, fc.b * 2.0);
-    ring1Col = clamp(ring1Col, 0.0, 1.0);
-    ring2Col = clamp(ring2Col, 0.0, 1.0);
-    ring3Col = clamp(ring3Col, 0.0, 1.0);
-
-    // ── Center dot ──
-    float dotR   = 0.10;
-    float cDot   = 1.0 - smoothstep(dotR - 0.02, dotR + 0.02, d);
-    vec3 dotCol  = fc * 1.8;
-
-    // ── Quadrant numbers: tiny bright squares at quadrant centers ──
-    // Each quadrant (±0.65, ±0.65) gets a tiny marker
-    vec2 qp = abs(p) - vec2(0.65);
-    float qMark = 1.0 - smoothstep(0.0, 0.06, length(qp) - 0.06);
-    vec3 qCol   = vec3(0.9, 0.9, 0.9) * 0.6;
-
-    // ── Depth tint: forward=warm, recessed=cool ──
-    float depthT = fComp;
-    vec3 warmShift = vec3(0.12, 0.02, -0.06);
-    vec3 coolShift = vec3(-0.06, 0.0,  0.10);
-    vec3 depthTint = mix(coolShift, warmShift, depthT);
-
-    // ── Composite all layers ──
-    vec3 col = bg;
-    col = mix(col, ring1Col, r1);
-    col = mix(col, ring2Col, r2);
-    col = mix(col, ring3Col, r3);
-    col = mix(col, armCol,   arm * 0.85);
-    col = mix(col, borderCol,border);
-    col = mix(col, dotCol,   cDot);
-    col = mix(col, qCol,     qMark * 0.7);
-    col += depthTint * 0.15;
-    col  = clamp(col, 0.0, 1.0);
-
-    gl_FragColor = vec4(col, uOpacity);
-  }
-`;
-
-// ════════════════════════════════════════════════
-//  CONFIG
-// ════════════════════════════════════════════════
-let depthScale   = 3.5;
-let pulseRate    = 0.8;
-let fieldOpacity = 0.85;
-let gridDensity  = 14;
-let knotAmount   = 936;    // landmarks + centroids (468 each tier)
-let densityStep  = 1;
-let viewMode     = 'skin';
-let stackMode    = false;   // show both skin + knots simultaneously
-let liveColors   = false;
-
-// Skin mesh separate from knot system
-let skinMesh = null;
-
-let latestLM  = null;
-let snapColors = null;  // Float32Array r,g,b per landmark [468*3]
-let neutralLM  = null;  // landmark positions at snap — neutral pose baseline
-
-// ── 28 anatomically stable anchor landmarks ──
-// HeadsUp insight: transmit only these, RBF fills the rest
-const ANCHORS_TX = [
-  33, 133, 362, 263,   // eye corners
-  159, 145, 386, 374,  // eyelid centers
-  70,  300,            // brow outer
-  105, 334,            // brow arch
-  1,   4,              // nose bridge + tip
-  61,  291,            // mouth corners
-  0,   17,             // lip center top + bottom
-  13,  14,             // inner lips — jaw open detection
-  152,                 // chin
-  234, 454,            // jaw hinges
-  10,                  // forehead center
-  187, 411,            // cheek bones
-  116, 345,            // mid cheek
-];
-
-// RBF fill: apply anchor deltas smoothly to all 468 landmarks
-const RBF_FILL = 2 * 0.04 * 0.04;
-function applyAnchorDeltas(baseLM, liveLM) {
-  // Compute deltas only at anchor positions, RBF-spread to all landmarks
-  const anchors = ANCHORS_TX.map(idx => ({
-    idx,
-    dx: liveLM[idx].x - baseLM[idx].x,
-    dy: liveLM[idx].y - baseLM[idx].y,
-    dz: liveLM[idx].z - baseLM[idx].z,
-  }));
-  return baseLM.map((lm, i) => {
-    let tw=0, dx=0, dy=0, dz=0;
-    for (const a of anchors) {
-      const d2 = (lm.x - baseLM[a.idx].x)**2 + (lm.y - baseLM[a.idx].y)**2;
-      const w  = Math.exp(-d2 / RBF_FILL);
-      dx += a.dx*w; dy += a.dy*w; dz += a.dz*w; tw += w;
-    }
-    if (tw < 1e-8) return {...lm};
-    return { x: lm.x + dx/tw, y: lm.y + dy/tw, z: lm.z + dz/tw };
-  });
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+const ST = {
+  mode:'knots', stack:false, advOpen:false,
+  depth:3.5, amt:936, pulse:0.8, grid:14, opacity:0.9, smooth:0.35,
+  running:false, calibrated:false,
+  // calibration baselines (captured once, FIXED — this kills drift)
+  neutral:null,        // [468][3] raw landmark positions at calibration
+  neutralCentroid:null,// center of rigid points at calibration
+  neutralScale:1,      // face scale at calibration (inter-ocular dist)
+  zRange:1, zMin:0,    // FIXED depth normalization from calibration
+  colors:null,         // Float32 [468*3] sampled face color
+  // live solved state
+  poseR:[1,0,0,0,1,0,0,0,1],   // current head rotation (smoothed)
+  poseT:[0,0,0],               // current head translation (smoothed)
+  // smoothed display points in canonical space [468][3]
+  canonPts:null,
+  fps:0, bw:0,
+};
+
+let latest=null;       // latest raw MediaPipe landmarks
+let scene,camera,renderer,gl;
+let frameN=0,lastFps=performance.now();
+
+// ═══════════════════════════════════════════════════════════════
+//  CALIBRATION — capture neutral pose + fixed normalization
+//  This is called once. Everything downstream references these
+//  baselines so the mapping NEVER rescales per-frame.
+// ═══════════════════════════════════════════════════════════════
+function calibrate(){
+  if(!latest) return false;
+  const lm=latest;
+
+  // Store raw neutral
+  ST.neutral = lm.map(p=>[p.x,p.y,p.z]);
+
+  // Rigid centroid (mean of rigid points)
+  let c=[0,0,0];
+  for(const i of RIGID_IDX){ c[0]+=lm[i].x; c[1]+=lm[i].y; c[2]+=lm[i].z; }
+  c=V.scale(c,1/RIGID_IDX.length);
+  ST.neutralCentroid=c;
+
+  // Face scale = inter-ocular distance (landmarks 33 & 263)
+  ST.neutralScale = Math.hypot(
+    lm[33].x-lm[263].x, lm[33].y-lm[263].y, lm[33].z-lm[263].z) || 0.1;
+
+  // FIXED depth normalization captured now, reused every frame
+  let zmin=Infinity,zmax=-Infinity;
+  for(let i=0;i<lm.length;i++){ if(lm[i].z<zmin)zmin=lm[i].z; if(lm[i].z>zmax)zmax=lm[i].z; }
+  ST.zMin=zmin; ST.zRange=Math.max(1e-3,zmax-zmin);
+
+  // Canonical points = neutral, centered & scale-normalized, identity pose
+  ST.canonPts = lm.map(p=>[
+    (p.x-c[0])/ST.neutralScale,
+    (p.y-c[1])/ST.neutralScale,
+    (p.z-c[2])/ST.neutralScale,
+  ]);
+
+  ST.calibrated=true;
+  return true;
 }
 
-let captureCanvas, captureCtx;
-let scene, camera, renderer;
-let knotSystem = null;
-let clock = new THREE.Clock();
-let frameCount = 0, lastFPSt = Date.now();
+// ═══════════════════════════════════════════════════════════════
+//  PER-FRAME SOLVE
+//  1. Solve rigid head pose (R,T) aligning current rigid pts to neutral
+//  2. Remove pose -> get expression in canonical frame
+//  3. Smooth canonical points (stable, low noise)
+//  4. Re-apply pose for display (head turns rotate the model in 3D)
+// ═══════════════════════════════════════════════════════════════
+function solveFrame(lm){
+  if(!ST.calibrated) return;
 
-// ════════════════════════════════════════════════
-//  SCENE SETUP — full-viewport, dark, no background
-// ════════════════════════════════════════════════
-function initThree() {
-  scene    = new THREE.Scene();
-  camera   = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.01, 20);
-  camera.position.z = 2.8;
+  // Current rigid centroid
+  let c=[0,0,0];
+  for(const i of RIGID_IDX){ c[0]+=lm[i].x; c[1]+=lm[i].y; c[2]+=lm[i].z; }
+  c=V.scale(c,1/RIGID_IDX.length);
 
-  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setClearColor(0, 0);
-  document.body.insertBefore(renderer.domElement, document.body.firstChild);
+  const curScale=Math.hypot(lm[33].x-lm[263].x,lm[33].y-lm[263].y,lm[33].z-lm[263].z)||ST.neutralScale;
+  const sInv=1/curScale;
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+  // Build centered, scale-normalized rigid point sets
+  const Pcur=[], Pneu=[];
+  for(const i of RIGID_IDX){
+    Pcur.push([(lm[i].x-c[0])*sInv,(lm[i].y-c[1])*sInv,(lm[i].z-c[2])*sInv]);
+    const n=ST.neutral[i];
+    Pneu.push([(n[0]-ST.neutralCentroid[0])/ST.neutralScale,
+               (n[1]-ST.neutralCentroid[1])/ST.neutralScale,
+               (n[2]-ST.neutralCentroid[2])/ST.neutralScale]);
+  }
+
+  // R maps current-canonical rigid pts onto neutral-canonical
+  // i.e. removing head rotation. We want display rotation = R^T.
+  const Rremove=kabsch(Pcur,Pneu);
+  const Rdisp=transpose(Rremove);
+
+  // Smooth pose rotation (slerp-ish via matrix lerp + reorthonormalize)
+  const a=ST.smooth;
+  for(let k=0;k<9;k++) ST.poseR[k]=ST.poseR[k]*(1-a)+Rdisp[k]*a;
+  ST.poseR=reorthonormalize(ST.poseR);
+
+  // Euler for telemetry
+  const e=matToEuler(ST.poseR);
+  ST._euler=e;
+
+  // For every landmark: compute canonical position (pose removed),
+  // smooth it, store. Expression lives here, denoised & pose-free.
+  const cp=ST.canonPts;
+  for(let i=0;i<lm.length;i++){
+    const pc=[(lm[i].x-c[0])*sInv,(lm[i].y-c[1])*sInv,(lm[i].z-c[2])*sInv];
+    const canon=mat3mulVec(Rremove,pc); // remove head rotation
+    cp[i][0]+=(canon[0]-cp[i][0])*a;
+    cp[i][1]+=(canon[1]-cp[i][1])*a;
+    cp[i][2]+=(canon[2]-cp[i][2])*a;
+  }
+}
+
+function reorthonormalize(m){
+  let x=V.norm([m[0],m[3],m[6]]);
+  let y=[m[1],m[4],m[7]];
+  y=V.sub(y,V.scale(x,V.dot(x,y))); y=V.norm(y);
+  let z=V.cross(x,y);
+  return [x[0],y[0],z[0], x[1],y[1],z[1], x[2],y[2],z[2]];
+}
+
+// World-space position for landmark i (canonical -> display rotation -> scale)
+// Mirrored X for selfie view. Returns [x,y,z] in scene units.
+function worldPos(i){
+  const cp=ST.canonPts[i];
+  const r=mat3mulVec(ST.poseR,cp);   // apply head rotation in 3D
+  const s=ST.depth;
+  return [ -r[0]*s, -r[1]*s, r[2]*s ]; // mirror X, flip Y for screen
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SHADERS — instanced splat billboards (shared by all point modes)
+// ═══════════════════════════════════════════════════════════════
+const SPLAT_VERT=`
+attribute vec2 aUV;
+attribute vec3 iPos;
+attribute vec3 iCol;
+attribute float iSize;
+attribute float iComp;
+attribute float iPhase;
+attribute float iCent;
+varying vec2 vUV; varying vec3 vCol; varying float vComp; varying float vPhase; varying float vCent;
+uniform float uTime; uniform float uPulse;
+void main(){
+  vUV=aUV; vCol=iCol; vComp=iComp; vPhase=iPhase; vCent=iCent;
+  vec4 mv=modelViewMatrix*vec4(iPos,1.0);
+  float pulse=1.0+sin(uTime*uPulse+iPhase)*0.12*iComp;
+  float sz=iSize*(0.5+iComp*0.5)*pulse;
+  mv.xy+=aUV*sz;
+  gl_Position=projectionMatrix*mv;
+}`;
+
+// Knots: concentric RGB-frequency rings
+const KNOT_FRAG=`
+varying vec2 vUV; varying vec3 vCol; varying float vComp; varying float vPhase; varying float vCent;
+uniform float uTime; uniform float uPulse; uniform float uOpacity;
+void main(){
+  float d=length(vUV); if(d>1.0)discard;
+  float r=1.0-d;
+  float rA=vCol.r,gA=vCol.g,bA=vCol.b;
+  float rC=max(1.0,floor(rA*(2.0+vComp*2.0)));
+  float gC=max(1.0,floor(gA*(3.0+vComp*3.0)));
+  float bC=max(1.0,floor(bA*(4.0+vComp*5.0)));
+  float rP=fract(r*rC+uTime*uPulse*0.5+vPhase*0.15);
+  float gP=fract(r*gC+uTime*uPulse*1.0+vPhase*0.12);
+  float bP=fract(r*bC+uTime*uPulse*1.8+vPhase*0.10);
+  float bw=0.42+vComp*0.06;
+  float rB=step(rP,bw)*rA*rA*2.0, gB=step(gP,bw)*gA*gA*1.8, bB=step(bP,bw)*bA*bA*1.6;
+  vec3 col=vec3(1.5,0.04,0.0)*rB+vec3(0.04,1.3,0.08)*gB+vec3(0.0,0.16,1.6)*bB;
+  float core=exp(-d*d*120.0)*(0.7+vComp*0.3); col+=vCol*core*2.2;
+  col*=0.45+vComp*0.55;
+  if(vCent>0.5){col*=0.6;}
+  float lum=dot(col,vec3(0.299,0.587,0.114));
+  float a=lum*exp(-d*d*3.0)*uOpacity;
+  if(a<0.008)discard;
+  gl_FragColor=vec4(col,a);
+}`;
+
+// Splat: clean gaussian in face color
+const SPLAT_FRAG=`
+varying vec2 vUV; varying vec3 vCol; varying float vComp; varying float vPhase; varying float vCent;
+uniform float uTime; uniform float uPulse; uniform float uOpacity;
+void main(){
+  float d=length(vUV); if(d>1.0)discard;
+  float g=exp(-d*d*8.0);
+  vec3 col=pow(max(vCol,vec3(0.02)),vec3(0.85));
+  col*=mix(vec3(0.9,0.95,1.05),vec3(1.06,0.97,0.9),vComp);
+  float spec=exp(-d*d*30.0)*vComp*vComp*0.3; col+=vec3(spec);
+  if(vCent>0.5)col*=0.85;
+  float a=g*uOpacity;
+  if(a<0.005)discard;
+  gl_FragColor=vec4(col,a);
+}`;
+
+// Realist: tight gaussian, warm/cool depth, gamma lift
+const REALIST_FRAG=`
+varying vec2 vUV; varying vec3 vCol; varying float vComp; varying float vPhase; varying float vCent;
+uniform float uTime; uniform float uPulse; uniform float uOpacity;
+void main(){
+  float d=length(vUV); if(d>1.0)discard;
+  float g=exp(-d*d*6.0);
+  vec3 col=pow(max(vCol,vec3(0.02)),vec3(0.82));
+  col*=mix(vec3(0.86,0.93,1.07),vec3(1.08,0.98,0.88),vComp);
+  float spec=exp(-d*d*22.0)*vComp*vComp*0.35; col+=vec3(spec*1.05,spec*0.95,spec*0.82);
+  if(vCent>0.5)col*=0.9;
+  float a=g*uOpacity;
+  if(a<0.004)discard;
+  gl_FragColor=vec4(col,a);
+}`;
+
+// Skin: continuous mesh, crosshair-reticle tile grid (from sketch)
+const SKIN_VERT=`
+attribute vec3 sCol; attribute float sComp;
+varying vec3 fCol; varying float fComp; varying vec2 fUV;
+uniform float uTime; uniform float uPulse;
+void main(){
+  fCol=sCol; fComp=sComp;
+  fUV=vec2(position.x*0.5+0.5, position.y*0.5+0.5);
+  vec3 p=position;
+  p.z+=sin(uTime*uPulse*0.6+position.x*3.0)*0.01*sComp;
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);
+}`;
+const SKIN_FRAG=`
+varying vec3 fCol; varying float fComp; varying vec2 fUV;
+uniform float uTime; uniform float uPulse; uniform float uOpacity; uniform float uGrid;
+void main(){
+  vec2 sc=fUV*uGrid; vec2 cell=floor(sc); vec2 p=(sc-cell-0.5)*2.0;
+  float h1=fract(sin(dot(cell,vec2(127.1,311.7)))*43758.5453);
+  vec3 fc=max(fCol,vec3(0.05,0.04,0.03));
+  float lum=dot(fc,vec3(0.299,0.587,0.114));
+  fc=mix(vec3(lum),fc,2.4); fc=pow(clamp(fc,0.001,1.0),vec3(0.48)); fc=clamp(fc*1.5,0.0,1.0);
+  vec3 bg=fc*0.12;
+  float bX=1.0-smoothstep(0.0,0.10,1.0-abs(p.x));
+  float bY=1.0-smoothstep(0.0,0.10,1.0-abs(p.y));
+  float border=max(bX,bY);
+  vec3 borderCol=clamp(vec3(fc.r*0.6,fc.g*0.3,fc.b*1.4)*2.0,0.0,1.0);
+  float aX=1.0-smoothstep(0.0,0.04,abs(p.x));
+  float aY=1.0-smoothstep(0.0,0.04,abs(p.y));
+  float arm=max(aX,aY);
+  vec3 armCol=clamp(vec3(fc.r*0.4,fc.g*1.3,fc.b*0.4),0.0,1.0);
+  float d=length(p);
+  float r1=1.0-smoothstep(0.0,0.045,abs(d-0.26));
+  float r2=1.0-smoothstep(0.0,0.045,abs(d-0.52));
+  float r3=1.0-smoothstep(0.0,0.045,abs(d-0.78));
+  float pulse=sin(uTime*uPulse*1.2+h1*6.28)*0.5+0.5; r2*=0.7+pulse*0.4;
+  vec3 r1c=clamp(vec3(fc.r*2.0,fc.g*0.3,fc.b*0.2),0.0,1.0);
+  vec3 r2c=clamp(vec3(fc.r*0.2,fc.g*2.0,fc.b*0.3),0.0,1.0);
+  vec3 r3c=clamp(vec3(fc.r*0.2,fc.g*0.3,fc.b*2.0),0.0,1.0);
+  float cDot=1.0-smoothstep(0.08,0.12,d);
+  vec3 col=bg;
+  col=mix(col,r1c,r1); col=mix(col,r2c,r2); col=mix(col,r3c,r3);
+  col=mix(col,armCol,arm*0.85); col=mix(col,borderCol,border);
+  col=mix(col,fc*1.8,cDot);
+  col=clamp(col,0.0,1.0);
+  gl_FragColor=vec4(col,uOpacity);
+}`;
+
+// ═══════════════════════════════════════════════════════════════
+//  TWO-TIER POINT INDEXING (landmarks + centroids)
+// ═══════════════════════════════════════════════════════════════
+let knotSys=null, skinMesh=null;
+const NLM=468;
+
+function buildPointSystem(){
+  if(knotSys){scene.remove(knotSys);knotSys.geometry.dispose();knotSys.material.dispose();knotSys=null;}
+  if(!ST.calibrated) return;
+
+  const tris=TESS;
+  const nTri=tris.length;
+  const total=NLM+nTri;
+
+  const iPos=new Float32Array(total*3);
+  const iCol=new Float32Array(total*3);
+  const iSize=new Float32Array(total);
+  const iComp=new Float32Array(total);
+  const iPhase=new Float32Array(total);
+  const iCent=new Float32Array(total);
+
+  fillPointAttributes(iPos,iCol,iSize,iComp,iPhase,iCent,tris);
+
+  const base=new THREE.BufferGeometry();
+  base.setAttribute('position',new THREE.Float32BufferAttribute([-1,-1,0,1,-1,0,1,1,0,-1,1,0],3));
+  base.setAttribute('aUV',new THREE.Float32BufferAttribute([-1,-1,1,-1,1,1,-1,1],2));
+  base.setIndex(new THREE.BufferAttribute(new Uint16Array([0,1,2,0,2,3]),1));
+
+  const geo=new THREE.InstancedBufferGeometry();
+  geo.instanceCount=total;
+  geo.setAttribute('position',base.attributes.position);
+  geo.setAttribute('aUV',base.attributes.aUV);
+  geo.setIndex(base.index);
+  geo.setAttribute('iPos',new THREE.InstancedBufferAttribute(iPos,3));
+  geo.setAttribute('iCol',new THREE.InstancedBufferAttribute(iCol,3));
+  geo.setAttribute('iSize',new THREE.InstancedBufferAttribute(iSize,1));
+  geo.setAttribute('iComp',new THREE.InstancedBufferAttribute(iComp,1));
+  geo.setAttribute('iPhase',new THREE.InstancedBufferAttribute(iPhase,1));
+  geo.setAttribute('iCent',new THREE.InstancedBufferAttribute(iCent,1));
+
+  const frag = ST.mode==='splat'?SPLAT_FRAG : ST.mode==='realist'?REALIST_FRAG : KNOT_FRAG;
+  const mat=new THREE.ShaderMaterial({
+    vertexShader:SPLAT_VERT, fragmentShader:frag,
+    transparent:true, depthWrite:false,
+    blending: ST.mode==='realist'?THREE.NormalBlending:THREE.AdditiveBlending,
+    uniforms:{uTime:{value:0},uPulse:{value:ST.pulse},uOpacity:{value:ST.opacity}}
   });
+  knotSys=new THREE.Mesh(geo,mat);
+  knotSys.frustumCulled=false;
+  scene.add(knotSys);
+}
 
-  // Render loop
-  (function loop() {
+// Fill/refresh instance attributes from current canonical+pose state
+function fillPointAttributes(iPos,iCol,iSize,iComp,iPhase,iCent,tris){
+  const C=ST.colors;
+  const lmTarget=Math.min(NLM,ST.amt);
+  const centTarget=Math.max(0,ST.amt-NLM);
+  const lmStep=Math.max(1,Math.floor(NLM/lmTarget));
+  const centStep=centTarget>0?Math.max(1,Math.floor(tris.length/centTarget)):1e9;
+
+  const lmSize = ST.mode==='realist'?0.16:0.12;
+  const centSize = ST.mode==='realist'?0.11:0.08;
+
+  // landmarks
+  for(let i=0;i<NLM;i++){
+    const w=worldPos(i);
+    iPos[i*3]=w[0]; iPos[i*3+1]=w[1]; iPos[i*3+2]=w[2];
+    if(C){iCol[i*3]=C[i*3];iCol[i*3+1]=C[i*3+1];iCol[i*3+2]=C[i*3+2];}
+    else {iCol[i*3]=0.2;iCol[i*3+1]=0.7;iCol[i*3+2]=0.9;}
+    // compression from canonical Z (stable, not per-frame renormalized)
+    const cz=ST.canonPts[i][2];
+    iComp[i]=Math.max(0,Math.min(1,0.5 - cz*1.5));
+    iPhase[i]=(i*0.618033)%(Math.PI*2);
+    iCent[i]=0;
+    iSize[i]=(i%lmStep===0)?lmSize:0;
+  }
+  // centroids
+  for(let t=0;t<tris.length;t++){
+    const [a,b,c]=tris[t]; const idx=NLM+t;
+    if(a>=NLM||b>=NLM||c>=NLM){iSize[idx]=0;continue;}
+    iPos[idx*3]=(iPos[a*3]+iPos[b*3]+iPos[c*3])/3;
+    iPos[idx*3+1]=(iPos[a*3+1]+iPos[b*3+1]+iPos[c*3+1])/3;
+    iPos[idx*3+2]=(iPos[a*3+2]+iPos[b*3+2]+iPos[c*3+2])/3;
+    iCol[idx*3]=(iCol[a*3]+iCol[b*3]+iCol[c*3])/3;
+    iCol[idx*3+1]=(iCol[a*3+1]+iCol[b*3+1]+iCol[c*3+1])/3;
+    iCol[idx*3+2]=(iCol[a*3+2]+iCol[b*3+2]+iCol[c*3+2])/3;
+    iComp[idx]=(iComp[a]+iComp[b]+iComp[c])/3;
+    iPhase[idx]=((a+b+c)*0.23)%(Math.PI*2);
+    iCent[idx]=1;
+    iSize[idx]=(t%centStep===0)?centSize:0;
+  }
+}
+
+// Fast per-frame update of existing buffers (no realloc)
+function updatePointSystem(){
+  if(!knotSys)return;
+  const g=knotSys.geometry;
+  fillPointAttributes(
+    g.attributes.iPos.array,g.attributes.iCol.array,g.attributes.iSize.array,
+    g.attributes.iComp.array,g.attributes.iPhase.array,g.attributes.iCent.array,TESS);
+  g.attributes.iPos.needsUpdate=true;
+  g.attributes.iSize.needsUpdate=true;
+  g.attributes.iComp.needsUpdate=true;
+  knotSys.material.uniforms.uPulse.value=ST.pulse;
+  knotSys.material.uniforms.uOpacity.value=ST.opacity;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SKIN MESH (continuous surface)
+// ═══════════════════════════════════════════════════════════════
+function buildSkinMesh(){
+  if(skinMesh){scene.remove(skinMesh);skinMesh.geometry.dispose();skinMesh.material.dispose();skinMesh=null;}
+  if(!ST.calibrated)return;
+  const pos=new Float32Array(NLM*3);
+  const col=new Float32Array(NLM*3);
+  const comp=new Float32Array(NLM);
+  const C=ST.colors;
+  for(let i=0;i<NLM;i++){
+    const w=worldPos(i);
+    pos[i*3]=w[0];pos[i*3+1]=w[1];pos[i*3+2]=w[2];
+    if(C){col[i*3]=C[i*3];col[i*3+1]=C[i*3+1];col[i*3+2]=C[i*3+2];}
+    const cz=ST.canonPts[i][2];
+    comp[i]=Math.max(0,Math.min(1,0.5-cz*1.5));
+  }
+  const idx=[];
+  for(const [a,b,c] of TESS){ if(a<NLM&&b<NLM&&c<NLM) idx.push(a,b,c); }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('sCol',new THREE.Float32BufferAttribute(col,3));
+  geo.setAttribute('sComp',new THREE.Float32BufferAttribute(comp,1));
+  geo.setIndex(idx);
+  const mat=new THREE.ShaderMaterial({
+    vertexShader:SKIN_VERT,fragmentShader:SKIN_FRAG,
+    transparent:true,side:THREE.DoubleSide,depthWrite:true,
+    uniforms:{uTime:{value:0},uPulse:{value:ST.pulse},uOpacity:{value:ST.opacity},uGrid:{value:ST.grid}}
+  });
+  skinMesh=new THREE.Mesh(geo,mat);
+  skinMesh.frustumCulled=false;
+  scene.add(skinMesh);
+}
+function updateSkinMesh(){
+  if(!skinMesh)return;
+  const pos=skinMesh.geometry.attributes.position;
+  const comp=skinMesh.geometry.attributes.sComp;
+  for(let i=0;i<NLM;i++){
+    const w=worldPos(i);
+    pos.array[i*3]=w[0];pos.array[i*3+1]=w[1];pos.array[i*3+2]=w[2];
+    const cz=ST.canonPts[i][2];
+    comp.array[i]=Math.max(0,Math.min(1,0.5-cz*1.5));
+  }
+  pos.needsUpdate=true; comp.needsUpdate=true;
+  skinMesh.geometry.computeVertexNormals();
+  const u=skinMesh.material.uniforms;
+  u.uPulse.value=ST.pulse;u.uOpacity.value=ST.opacity;u.uGrid.value=ST.grid;
+}
+
+function setWire(on){ if(skinMesh) skinMesh.material.wireframe=on; }
+
+// ═══════════════════════════════════════════════════════════════
+//  VISIBILITY — mode + stack
+// ═══════════════════════════════════════════════════════════════
+function applyMode(){
+  const pointMode = (ST.mode==='knots'||ST.mode==='splat'||ST.mode==='realist');
+  const meshMode  = (ST.mode==='skin'||ST.mode==='wire');
+
+  // rebuild appropriate systems
+  if(pointMode){ buildPointSystem(); if(ST.stack) buildSkinMesh(); }
+  else { buildSkinMesh(); if(ST.stack) buildPointSystem(); setWire(ST.mode==='wire'); }
+
+  if(knotSys) knotSys.visible = pointMode || ST.stack;
+  if(skinMesh) skinMesh.visible = meshMode || ST.stack;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  COLOR SAMPLING (selfie-mirrored)
+// ═══════════════════════════════════════════════════════════════
+let capCanvas,capCtx;
+function sampleColors(){
+  if(!latest)return;
+  const vid=document.getElementById('cam');
+  if(!vid.videoWidth)return;
+  capCtx.drawImage(vid,0,0,640,480);
+  const px=capCtx.getImageData(0,0,640,480).data;
+  ST.colors=new Float32Array(NLM*3);
+  for(let i=0;i<NLM;i++){
+    const x=Math.min(639,Math.max(0,Math.floor((1-latest[i].x)*640)));
+    const y=Math.min(479,Math.max(0,Math.floor(latest[i].y*480)));
+    const o=(y*640+x)*4;
+    ST.colors[i*3]=px[o]/255;ST.colors[i*3+1]=px[o+1]/255;ST.colors[i*3+2]=px[o+2]/255;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  THREE SETUP + RENDER LOOP
+// ═══════════════════════════════════════════════════════════════
+function initThree(){
+  gl=document.getElementById('gl');
+  scene=new THREE.Scene();
+  camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,0.01,100);
+  camera.position.z=4.2;
+  renderer=new THREE.WebGLRenderer({canvas:gl,antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.setClearColor(0,0);
+  addEventListener('resize',()=>{
+    camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
+  });
+  const clock=new THREE.Clock();
+  (function loop(){
     requestAnimationFrame(loop);
-    const t = clock.getElapsedTime();
-
-    // Subtle idle drift of the whole field
-    if (knotSystem) {
-      knotSystem.rotation.y = Math.sin(t*0.12) * 0.08;
-      knotSystem.rotation.x = Math.sin(t*0.08) * 0.04;
-      knotSystem.material.uniforms.uTime.value     = t;
-      knotSystem.material.uniforms.uOpacity.value  = fieldOpacity;
-      knotSystem.material.uniforms.uPulse.value    = pulseRate;
-    }
-    if (skinMesh) {
-      skinMesh.material.uniforms.uTime.value     = t;
-      skinMesh.material.uniforms.uOpacity.value  = fieldOpacity;
-      skinMesh.material.uniforms.uPulse.value    = pulseRate;
-      skinMesh.material.uniforms.uGrid.value     = gridDensity;
-    }
-
-    renderer.render(scene, camera);
-
-    frameCount++;
-    const now = Date.now();
-    if (now - lastFPSt > 1000) {
-      if (latestLM) document.getElementById('stat').textContent =
-        `${latestLM.length + TESS.length} knots · ${frameCount} hz`;
-      frameCount = 0; lastFPSt = now;
+    const t=clock.getElapsedTime();
+    if(knotSys&&knotSys.visible){knotSys.material.uniforms.uTime.value=t;}
+    if(skinMesh&&skinMesh.visible){skinMesh.material.uniforms.uTime.value=t;}
+    renderer.render(scene,camera);
+    frameN++;
+    const now=performance.now();
+    if(now-lastFps>500){
+      ST.fps=Math.round(frameN*1000/(now-lastFps));frameN=0;lastFps=now;
+      updateTelem();
     }
   })();
 }
 
-// ════════════════════════════════════════════════
-//  SURFACE NORMAL COMPUTATION
-//  For each landmark, average the cross products of
-//  all adjacent TESS triangles → smooth vertex normal
-// ════════════════════════════════════════════════
-function computeNormals(posArr, nLM) {
-  const norms  = new Float32Array(nLM * 3);
-  const counts = new Uint32Array(nLM);
-  for (const tri of TESS) {
-    const [a,b,c] = tri;
-    if (a>=nLM||b>=nLM||c>=nLM) continue;
-    const ax=posArr[a*3],ay=posArr[a*3+1],az=posArr[a*3+2];
-    const bx=posArr[b*3],by=posArr[b*3+1],bz=posArr[b*3+2];
-    const cx=posArr[c*3],cy=posArr[c*3+1],cz=posArr[c*3+2];
-    const e1x=bx-ax,e1y=by-ay,e1z=bz-az;
-    const e2x=cx-ax,e2y=cy-ay,e2z=cz-az;
-    const nx=e1y*e2z-e1z*e2y, ny=e1z*e2x-e1x*e2z, nz=e1x*e2y-e1y*e2x;
-    for (const v of [a,b,c]) {
-      norms[v*3]+=nx; norms[v*3+1]+=ny; norms[v*3+2]+=nz; counts[v]++;
-    }
+function updateTelem(){
+  document.getElementById('t-fps').textContent=ST.fps;
+  document.getElementById('t-track').textContent=ST.calibrated?'LOCK':(latest?'SEEK':'—');
+  if(ST._euler){
+    const[y,p,r]=ST._euler;
+    document.getElementById('t-pose').textContent=`${y.toFixed(0)}°`;
   }
-  for (let i=0; i<nLM; i++) {
-    if (!counts[i]) { norms[i*3+2]=1; continue; }
-    const len=Math.sqrt(norms[i*3]**2+norms[i*3+1]**2+norms[i*3+2]**2);
-    if (len>1e-6) { norms[i*3]/=len; norms[i*3+1]/=len; norms[i*3+2]/=len; }
-    else norms[i*3+2]=1;
-  }
-  return norms;
+  // bitrate estimate: 28 anchors * 3 * int8 delta @ fps
+  ST.bw=Math.round(28*3*ST.fps/1000*8); // kbps
+  document.getElementById('t-bw').textContent=ST.bw+'k';
 }
 
-// ════════════════════════════════════════════════
-//  BUILD SKIN MESH
-//  A continuous indexed THREE.Mesh from the TESS triangles.
-//  Per-vertex color from snapped face photo.
-//  The SKIN_FRAG shader tiles geometric shapes across it.
-// ════════════════════════════════════════════════
-function buildSkinMesh(lm, colors) {
-  // Remove old skin mesh
-  if (skinMesh) { scene.remove(skinMesh); skinMesh.geometry.dispose(); skinMesh.material.dispose(); skinMesh = null; }
-  if (!lm || !colors) return;
-
-  const nLM = lm.length;
-
-  // Face centre + scale (same as splat system)
-  const OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,
-    379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
-  let fcx=0, fcy=0;
-  OVAL.forEach(i => { fcx += lm[i].x; fcy += lm[i].y; });
-  fcx /= OVAL.length; fcy /= OVAL.length;
-  const SCALE = 3.8;
-
-  let zMin=Infinity, zMax=-Infinity;
-  for (let i=0;i<nLM;i++) { if(lm[i].z<zMin) zMin=lm[i].z; if(lm[i].z>zMax) zMax=lm[i].z; }
-  const zRange = Math.max(0.001, zMax-zMin);
-
-  // Vertex arrays — one entry per landmark
-  const posArr  = new Float32Array(nLM * 3);
-  const colArr  = new Float32Array(nLM * 3);
-  const compArr = new Float32Array(nLM);
-
-  for (let i=0; i<nLM; i++) {
-    const cv = 1.0 - (lm[i].z - zMin) / zRange;
-    posArr[i*3  ] = (fcx - lm[i].x) * SCALE;
-    posArr[i*3+1] = (fcy - lm[i].y) * SCALE;
-    posArr[i*3+2] = cv * depthScale - depthScale * 0.5;
-    colArr[i*3  ] = colors[i*3  ];
-    colArr[i*3+1] = colors[i*3+1];
-    colArr[i*3+2] = colors[i*3+2];
-    compArr[i]    = cv;
+// ═══════════════════════════════════════════════════════════════
+//  CAMERA + MEDIAPIPE
+// ═══════════════════════════════════════════════════════════════
+async function initOptics(){
+  const btn=document.getElementById('b-init');
+  btn.textContent='Init…'; btn.disabled=true;
+  if(typeof THREE==='undefined'||typeof FaceMesh==='undefined'||typeof Camera==='undefined'){
+    btn.textContent='Deps missing'; btn.disabled=false; return;
   }
+  initThree();
+  capCanvas=document.createElement('canvas');capCanvas.width=640;capCanvas.height=480;
+  capCtx=capCanvas.getContext('2d',{willReadFrequently:true});
 
-  // Index array from TESS
-  const idxArr = [];
-  for (const [a,b,c] of TESS) {
-    if (a < nLM && b < nLM && c < nLM) idxArr.push(a, b, c);
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(posArr,  3));
-  geo.setAttribute('vCol',     new THREE.Float32BufferAttribute(colArr,  3));
-  geo.setAttribute('vComp',    new THREE.Float32BufferAttribute(compArr, 1));
-  geo.setIndex(idxArr);
-  geo.computeVertexNormals();
-
-  const mat = new THREE.ShaderMaterial({
-    vertexShader:   SKIN_VERT,
-    fragmentShader: SKIN_FRAG,
-    transparent:    true,
-    depthWrite:     true,
-    side:           THREE.FrontSide,
-    uniforms: {
-      uTime:    { value: 0 },
-      uPulse:   { value: pulseRate },
-      uOpacity: { value: fieldOpacity },
-      uGrid:    { value: gridDensity },
-    },
-  });
-
-  skinMesh = new THREE.Mesh(geo, mat);
-  scene.add(skinMesh);
-}
-
-function updateSkinPositions(lm) {
-  if (!skinMesh) return;
-  const pos  = skinMesh.geometry.attributes.position;
-  const comp = skinMesh.geometry.attributes.vComp;
-  const nLM  = lm.length;
-
-  const OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,
-    379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
-  let fcx=0, fcy=0;
-  OVAL.forEach(i => { fcx += lm[i].x; fcy += lm[i].y; });
-  fcx /= OVAL.length; fcy /= OVAL.length;
-  const SCALE = 3.8;
-
-  let zMin=Infinity, zMax=-Infinity;
-  for (let i=0;i<nLM;i++) { if(lm[i].z<zMin) zMin=lm[i].z; if(lm[i].z>zMax) zMax=lm[i].z; }
-  const zRange = Math.max(0.001, zMax-zMin);
-
-  for (let i=0; i<nLM && i < pos.count; i++) {
-    const cv  = 1.0 - (lm[i].z-zMin)/zRange;
-    const tx  = (fcx - lm[i].x) * SCALE;
-    const ty  = (fcy - lm[i].y) * SCALE;
-    const tz  = cv * depthScale - depthScale * 0.5;
-    pos.array[i*3  ] += (tx - pos.array[i*3  ]) * 0.3;
-    pos.array[i*3+1] += (ty - pos.array[i*3+1]) * 0.3;
-    pos.array[i*3+2] += (tz - pos.array[i*3+2]) * 0.3;
-    comp.array[i]    += (cv - comp.array[i]) * 0.3;
-  }
-  pos.needsUpdate  = true;
-  comp.needsUpdate = true;
-  skinMesh.geometry.computeVertexNormals();
-
-  // Update uniforms
-  skinMesh.material.uniforms.uPulse.value   = pulseRate;
-  skinMesh.material.uniforms.uOpacity.value = fieldOpacity;
-  skinMesh.material.uniforms.uGrid.value    = gridDensity;
-}
-
-function rebuildSkin() {
-  if (viewMode === 'skin' && latestLM && snapColors) buildSkinMesh(latestLM, snapColors);
-}
-
-// ════════════════════════════════════════════════
-//  BUILD KNOT SYSTEM — instanced billboard splats
-//  Three density tiers for realist mode:
-//   T0: 468 landmarks       — large splats, source data
-//   T1: ~460 tri centroids  — medium splats, inferred
-//   T2: ~460 sub-centroids  — small splats, fill gaps
-// ════════════════════════════════════════════════
-function buildKnotSystem(lm, colors) {
-  if (knotSystem) {
-    scene.remove(knotSystem);
-    knotSystem.geometry.dispose();
-    knotSystem.material.dispose();
-    knotSystem = null;
-  }
-
-  const isRealist = viewMode === 'realist';
-  const nLM   = lm.length;
-  const tris  = TESS.filter((_,i) => i % densityStep === 0);
-  const nTri  = tris.length;
-
-  // Sub-centroids: centroid of each tri's centroid with its neighbours
-  // Simple approach: centroid-of-centroid for every other tri pair
-  const nSub  = isRealist ? Math.floor(nTri / 2) : 0;
-  const total = nLM + nTri + nSub;
-
-  const posArr   = new Float32Array(total * 3);
-  const normArr  = new Float32Array(total * 3);
-  const sizeArr  = new Float32Array(total);
-  const colArr   = new Float32Array(total * 3);
-  const compArr  = new Float32Array(total);
-  const phaseArr = new Float32Array(total);
-  const centArr  = new Float32Array(total); // 0=LM, 1=centroid, 2=sub-centroid
-
-  let zMin=Infinity, zMax=-Infinity;
-  for (let i=0;i<nLM;i++) {
-    if (lm[i].z<zMin) zMin=lm[i].z;
-    if (lm[i].z>zMax) zMax=lm[i].z;
-  }
-  const zRange = Math.max(0.001, zMax-zMin);
-
-  // ── Compute actual face center from oval landmarks ──
-  // Don't assume center is at (0.5, 0.5) — it varies with head position
-  const OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,
-    379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
-  let cx=0, cy=0;
-  OVAL.forEach(i => { cx += lm[i].x; cy += lm[i].y; });
-  cx /= OVAL.length; cy /= OVAL.length;
-
-  // ── Uniform scale: fit face oval to ~80% of the shorter screen dimension ──
-  // Using a fixed scale avoids portrait/landscape distortion entirely.
-  // Camera is 640×480 → face oval spans ~40% of frame width typically.
-  // We want that to map to ~1.6 units in 3D space (camera at z=2.8, FOV=38°).
-  const SCALE = 3.8;
-
-  // Size scales
-  const lmSize   = isRealist ? 0.20 : 0.13;
-  const centSize = isRealist ? 0.13 : 0.09;
-  const subSize  = isRealist ? 0.09 : 0.06;
-
-  // knotAmount 0–468  → only landmarks, subsampled
-  // knotAmount 468–936 → all landmarks + subsampled centroids
-  const lmTarget   = Math.min(nLM, knotAmount);
-  const centTarget = Math.max(0, knotAmount - nLM);
-  const lmStep     = Math.max(1, Math.floor(nLM / lmTarget));
-  const centStep   = centTarget > 0 ? Math.max(1, Math.floor(nTri / centTarget)) : 999999;
-
-  // ── T0: Landmarks — centred on actual face, uniform XY scale ──
-  for (let i=0; i<nLM; i++) {
-    const compVal = 1.0 - (lm[i].z - zMin) / zRange;
-    posArr[i*3  ] = (cx - lm[i].x) * SCALE;
-    posArr[i*3+1] = (cy - lm[i].y) * SCALE;
-    posArr[i*3+2] = compVal * depthScale - depthScale * 0.5;
-
-    if (colors) {
-      colArr[i*3  ] = colors[i*3  ];
-      colArr[i*3+1] = colors[i*3+1];
-      colArr[i*3+2] = colors[i*3+2];
-    } else {
-      colArr[i*3  ] = 0.15 + compVal * 0.25;
-      colArr[i*3+1] = 0.55 + compVal * 0.35;
-      colArr[i*3+2] = 0.65 + compVal * 0.35;
-    }
-    compArr[i]  = compVal;
-    phaseArr[i] = (i * 0.618033) % (Math.PI * 2);
-    centArr[i]  = 0;
-    // Skip this landmark if outside knotAmount — zero size hides it
-    sizeArr[i]  = (i % lmStep === 0) ? lmSize : 0.0;
-  }
-
-  // Surface normals
-  const lmNorms = computeNormals(posArr, nLM);
-  normArr.set(lmNorms);
-
-  // ── T1: Triangle centroids ──
-  for (let t=0; t<nTri; t++) {
-    const [a,b,c] = tris[t];
-    if (a>=nLM||b>=nLM||c>=nLM) continue;
-    const idx = nLM + t;
-
-    posArr[idx*3  ] = (posArr[a*3  ]+posArr[b*3  ]+posArr[c*3  ])/3;
-    posArr[idx*3+1] = (posArr[a*3+1]+posArr[b*3+1]+posArr[c*3+1])/3;
-    posArr[idx*3+2] = (posArr[a*3+2]+posArr[b*3+2]+posArr[c*3+2])/3;
-
-    colArr[idx*3  ] = (colArr[a*3  ]+colArr[b*3  ]+colArr[c*3  ])/3;
-    colArr[idx*3+1] = (colArr[a*3+1]+colArr[b*3+1]+colArr[c*3+1])/3;
-    colArr[idx*3+2] = (colArr[a*3+2]+colArr[b*3+2]+colArr[c*3+2])/3;
-
-    const nx=(normArr[a*3]+normArr[b*3]+normArr[c*3])/3;
-    const ny=(normArr[a*3+1]+normArr[b*3+1]+normArr[c*3+1])/3;
-    const nz=(normArr[a*3+2]+normArr[b*3+2]+normArr[c*3+2])/3;
-    const nl=Math.sqrt(nx*nx+ny*ny+nz*nz);
-    normArr[idx*3  ]=nl>1e-6?nx/nl:0;
-    normArr[idx*3+1]=nl>1e-6?ny/nl:0;
-    normArr[idx*3+2]=nl>1e-6?nz/nl:1;
-
-    compArr[idx]  = (compArr[a]+compArr[b]+compArr[c])/3;
-    phaseArr[idx] = ((a+b+c)*0.23)%(Math.PI*2);
-    centArr[idx]  = 1;
-    sizeArr[idx]  = (t % centStep === 0) ? centSize : 0.0;
-  }
-
-  // ── T2: Sub-centroids (midpoints between adjacent centroid pairs) ──
-  if (isRealist) {
-    for (let t=0; t<nSub; t++) {
-      const i0 = nLM + t*2;
-      const i1 = nLM + t*2 + 1;
-      if (i1 >= nLM+nTri) continue;
-      const idx = nLM + nTri + t;
-      posArr[idx*3  ] = (posArr[i0*3  ]+posArr[i1*3  ])/2;
-      posArr[idx*3+1] = (posArr[i0*3+1]+posArr[i1*3+1])/2;
-      posArr[idx*3+2] = (posArr[i0*3+2]+posArr[i1*3+2])/2;
-      colArr[idx*3  ] = (colArr[i0*3  ]+colArr[i1*3  ])/2;
-      colArr[idx*3+1] = (colArr[i0*3+1]+colArr[i1*3+1])/2;
-      colArr[idx*3+2] = (colArr[i0*3+2]+colArr[i1*3+2])/2;
-      normArr[idx*3  ]=(normArr[i0*3  ]+normArr[i1*3  ])/2;
-      normArr[idx*3+1]=(normArr[i0*3+1]+normArr[i1*3+1])/2;
-      normArr[idx*3+2]=(normArr[i0*3+2]+normArr[i1*3+2])/2;
-      compArr[idx]   = (compArr[i0]+compArr[i1])/2;
-      phaseArr[idx]  = (phaseArr[i0]+phaseArr[i1])/2;
-      centArr[idx]   = 2;
-      sizeArr[idx]   = subSize;
-    }
-  }
-
-  const actualTotal = nLM + nTri + (isRealist ? nSub : 0);
-
-  // ── Base quad ──
-  const baseGeo = new THREE.BufferGeometry();
-  baseGeo.setAttribute('position', new THREE.Float32BufferAttribute(
-    new Float32Array([-1,-1,0, 1,-1,0, 1,1,0, -1,1,0]), 3));
-  baseGeo.setAttribute('aUV', new THREE.Float32BufferAttribute(
-    new Float32Array([-1,-1, 1,-1, 1,1, -1,1]), 2));
-  baseGeo.setIndex(new THREE.BufferAttribute(new Uint16Array([0,1,2,0,2,3]), 1));
-
-  // ── Instanced geometry ──
-  const geo = new THREE.InstancedBufferGeometry();
-  geo.instanceCount = actualTotal;
-  geo.setAttribute('position', baseGeo.attributes.position);
-  geo.setAttribute('aUV',      baseGeo.attributes.aUV);
-  geo.setIndex(baseGeo.index);
-  geo.setAttribute('iPos',   new THREE.InstancedBufferAttribute(posArr.slice(0, actualTotal*3),   3));
-  geo.setAttribute('iNorm',  new THREE.InstancedBufferAttribute(normArr.slice(0, actualTotal*3),  3));
-  geo.setAttribute('iSize',  new THREE.InstancedBufferAttribute(sizeArr.slice(0, actualTotal),    1));
-  geo.setAttribute('iCol',   new THREE.InstancedBufferAttribute(colArr.slice(0, actualTotal*3),   3));
-  geo.setAttribute('iComp',  new THREE.InstancedBufferAttribute(compArr.slice(0, actualTotal),    1));
-  geo.setAttribute('iPhase', new THREE.InstancedBufferAttribute(phaseArr.slice(0, actualTotal),   1));
-  geo.setAttribute('iCent',  new THREE.InstancedBufferAttribute(centArr.slice(0, actualTotal),    1));
-
-  const fragShader = viewMode==='field'   ? FIELD_FRAG
-                   : viewMode==='fabric'  ? FABRIC_FRAG
-                   : viewMode==='realist' ? REALIST_FRAG
-                   : SPLAT_FRAG;
-
-  const mat = new THREE.ShaderMaterial({
-    vertexShader:   SPLAT_VERT,
-    fragmentShader: fragShader,
-    transparent:    true,
-    depthWrite:     false,
-    blending:       isRealist ? THREE.NormalBlending : THREE.AdditiveBlending,
-    side:           THREE.DoubleSide,
-    uniforms: {
-      uTime:    { value: 0 },
-      uPulse:   { value: pulseRate },
-      uOpacity: { value: fieldOpacity },
-    },
-  });
-
-  knotSystem = new THREE.Mesh(geo, mat);
-  scene.add(knotSystem);
-  document.getElementById('stat').textContent =
-    `${actualTotal} splats · ${nLM} lm + ${nTri} Δ${isRealist ? ' + '+nSub+' sub' : ''}`;
-}
-
-// ════════════════════════════════════════════════
-//  CAPTURE — sample face colors from video
-// ════════════════════════════════════════════════
-function snap() {
-  if (!latestLM) return;
-  const lm  = latestLM;
-  const vid = document.getElementById('camFeed');
-  if (!vid.videoWidth) return;
-
-  // Store neutral pose — all future live motion is a delta from this
-  neutralLM = lm.map(l => ({...l}));
-
-  // ── Sample colors ──
-  // Video is from front-facing camera (selfie = mirrored).
-  // Positions use (cx - lm.x) which mirrors X for display.
-  // Colors must also mirror X to match: sample at (1 - lm.x).
-  captureCtx.drawImage(vid, 0, 0, 640, 480);
-  const px = captureCtx.getImageData(0, 0, 640, 480).data;
-
-  snapColors = new Float32Array(lm.length * 3);
-  for (let i = 0; i < lm.length; i++) {
-    // Mirror x to match the mirrored position coordinates
-    const x   = Math.min(639, Math.max(0, Math.floor((1 - lm[i].x) * 640)));
-    const y   = Math.min(479, Math.max(0, Math.floor(lm[i].y * 480)));
-    const idx = (y * 640 + x) * 4;
-    snapColors[i*3  ] = px[idx  ] / 255;
-    snapColors[i*3+1] = px[idx+1] / 255;
-    snapColors[i*3+2] = px[idx+2] / 255;
-  }
-
-  if (viewMode === 'skin') {
-    buildSkinMesh(latestLM, snapColors);
-    buildKnotSystem(latestLM, snapColors);
-  } else {
-    buildKnotSystem(latestLM, snapColors);
-  }
-  applyVisibility();
-  document.getElementById('btn-snap').classList.add('snap-on');
-  document.getElementById('btn-snap').textContent = 'Re-Stabilise';
-  document.getElementById('btn-live').disabled = false;
-  document.getElementById('lore').textContent =
-    'structure · where imbalance stabilises · geometry in time';
-}
-
-function toggleLive() {
-  liveColors = !liveColors;
-  const btn = document.getElementById('btn-live');
-  btn.textContent = liveColors ? 'Live: On' : 'Live Knots';
-  btn.className   = liveColors ? 'btn on' : 'btn';
-}
-
-// ════════════════════════════════════════════════
-//  VIEW MODE
-// ════════════════════════════════════════════════
-function toggleStack() {
-  stackMode = !stackMode;
-  document.getElementById('mb-stack').classList.toggle('on', stackMode);
-  applyVisibility();
-}
-
-function applyVisibility() {
-  const showSkin  = viewMode === 'skin' || stackMode;
-  const showKnots = viewMode !== 'skin' || stackMode;
-  if (skinMesh)   skinMesh.visible   = showSkin;
-  if (knotSystem) knotSystem.visible = showKnots;
-}
-
-function setView(v) {
-  viewMode = v;
-  ['knots','field','fabric','realist','skin'].forEach(id =>
-    document.getElementById('mb-'+id)?.classList.toggle('on', id===v));
-
-  if (v === 'skin') {
-    if (latestLM && snapColors) buildSkinMesh(latestLM, snapColors);
-    if (latestLM && !knotSystem) buildKnotSystem(latestLM, snapColors);
-  } else {
-    if (latestLM) buildKnotSystem(latestLM, snapColors);
-  }
-  applyVisibility();
-}
-
-function setDensity(v) {
-  densityStep = v;
-  document.getElementById('lbl-dens').textContent = v;
-  if (latestLM) buildKnotSystem(latestLM, snapColors);
-}
-
-// ════════════════════════════════════════════════
-//  MEDIAPIPE
-// ════════════════════════════════════════════════
-async function initSystem() {
-  const btn = document.getElementById('btn-init');
-  btn.textContent = 'Initialising…';
-  btn.disabled = true;
-
-  // Safety check — Three.js must be loaded
-  if (typeof THREE === 'undefined') {
-    btn.textContent = 'Three.js missing';
-    btn.disabled = false;
-    return;
-  }
-
-  // Safety check — FaceMesh must be loaded
-  if (typeof FaceMesh === 'undefined') {
-    btn.textContent = 'FaceMesh missing';
-    btn.disabled = false;
-    return;
-  }
-
-  // Init Three.js renderer
-  try {
-    initThree();
-  } catch(e) {
-    console.error('Three init failed:', e);
-    btn.textContent = 'Renderer Error';
-    btn.disabled = false;
-    return;
-  }
-
-  // Capture canvas for photo sampling
-  captureCanvas = document.createElement('canvas');
-  captureCanvas.width = 640; captureCanvas.height = 480;
-  captureCtx = captureCanvas.getContext('2d');
-
-  // Camera access
   let stream;
-  try {
-    btn.textContent = 'Requesting Camera…';
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { width:640, height:480, facingMode:'user' },
-      audio: false,
-    });
-  } catch(e) {
-    console.error('Camera access denied:', e);
-    btn.textContent = 'Camera Denied — Retry';
-    btn.disabled = false;
-    return;
-  }
+  try{
+    btn.textContent='Camera…';
+    stream=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'},audio:false});
+  }catch(e){ btn.textContent='Cam denied'; btn.disabled=false; return; }
 
-  // Attach stream to video elements
-  const pipVid  = document.getElementById('pipVid');
-  const camFeed = document.getElementById('camFeed');
-  pipVid.srcObject  = stream;
-  camFeed.srcObject = stream;
+  const pip=document.getElementById('pip'), cam=document.getElementById('cam');
+  pip.srcObject=stream; cam.srcObject=stream;
+  try{pip.play();}catch(_){}; try{cam.play();}catch(_){}
+  await new Promise(r=>{ if(cam.readyState>=2)return r(); cam.onloadeddata=r; setTimeout(r,5000); });
 
-  // Play — don't await, it throws on some browsers; use event instead
-  try { pipVid.play(); } catch(_) {}
-  try { camFeed.play(); } catch(_) {}
-
-  // Wait for video to be ready (max 6s)
-  await new Promise((res, rej) => {
-    if (camFeed.readyState >= 2) { res(); return; }
-    camFeed.onloadeddata = res;
-    setTimeout(() => rej(new Error('Video load timeout')), 6000);
-  }).catch(e => { console.warn('Video ready warning:', e.message); });
-
-  btn.textContent = 'Loading Face Mesh…';
-
-  // MediaPipe FaceMesh
+  btn.textContent='Mesh…';
   let fm;
-  try {
-    fm = new FaceMesh({
-      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
-    });
-    fm.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: false,
-      minDetectionConfidence: 0.55,
-      minTrackingConfidence:  0.50,
-    });
-    fm.onResults(res => {
-      if (!res.multiFaceLandmarks?.[0]) return;
-      latestLM = res.multiFaceLandmarks[0];
+  try{
+    fm=new FaceMesh({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`});
+    fm.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.6,minTrackingConfidence:0.6});
+    fm.onResults(onResults);
+  }catch(e){ btn.textContent='Mesh err'; btn.disabled=false; return; }
 
-      // Auto-snap on very first frame so color appears immediately
-      if (!snapColors && captureCanvas) {
-        snap();
-        return;
-      }
+  try{
+    let busy=false;
+    const mp=new Camera(cam,{onFrame:async()=>{if(busy)return;busy=true;try{await fm.send({image:cam});}catch(_){}finally{busy=false;}},width:640,height:480});
+    await mp.start();
+  }catch(e){ btn.textContent='Stream err'; btn.disabled=false; return; }
 
-      if (liveColors) {
-        snap();
-        return;
-      }
-
-      // ── Blendshape-style puppet (HeadsUp approach) ──
-      // Drive motion from 28 stable anchors via RBF instead of 468 noisy
-      // points. neutralLM is the snap baseline; latestLM is live.
-      // applyAnchorDeltas computes deltas at anchors and smoothly spreads
-      // them across the whole face — denoised, transmittable in ~88 bytes.
-      let puppetLM = latestLM;
-      if (neutralLM) {
-        puppetLM = applyAnchorDeltas(neutralLM, latestLM);
-      }
-
-      if (viewMode === 'skin' && skinMesh) {
-        updateSkinPositions(puppetLM);
-      } else if (knotSystem && knotSystem.geometry) {
-        updatePositions(puppetLM);
-      } else {
-        buildKnotSystem(puppetLM, snapColors);
-      }
-    });
-  } catch(e) {
-    console.error('FaceMesh init failed:', e);
-    btn.textContent = 'FaceMesh Error';
-    btn.disabled = false;
-    return;
-  }
-
-  // Start camera loop
-  try {
-    let processing = false;
-    const mpCam = new Camera(camFeed, {
-      onFrame: async () => {
-        if (processing) return;
-        processing = true;
-        try { await fm.send({ image: camFeed }); }
-        catch(e) { console.warn('Frame send error:', e.message); }
-        finally { processing = false; }
-      },
-      width: 640, height: 480,
-    });
-    await mpCam.start();
-  } catch(e) {
-    console.error('Camera loop failed:', e);
-    btn.textContent = 'Stream Error';
-    btn.disabled = false;
-    return;
-  }
-
-  // All good
-  btn.textContent = 'Optics Live';
-  btn.classList.add('on');
-  btn.disabled = false;
-  document.getElementById('btn-snap').disabled = false;
-  document.getElementById('lore').textContent =
-    'atoms aren\u2019t particles \u00b7 stable knots in time \u00b7 where imbalance stabilises';
+  ST.running=true;
+  btn.textContent='Live'; btn.classList.add('go'); btn.disabled=false;
+  document.getElementById('b-snap').disabled=false;
+  showHint('Hold still & face forward, then tap Calibrate');
 }
 
-// ════════════════════════════════════════════════
-//  LIVE POSITION UPDATE (without rebuilding geometry)
-//  Smoothly lerps landmark positions toward live data
-// ════════════════════════════════════════════════
-const LERP = 0.3;
-function updatePositions(lm) {
-  if (!knotSystem) return;
-  const geo      = knotSystem.geometry;
-  const posAttr  = geo.attributes.iPos;
-  const compAttr = geo.attributes.iComp;
-  const normAttr = geo.attributes.iNorm;
-  if (!posAttr || !compAttr) return;
-
-  const posArr  = posAttr.array;
-  const compArr = compAttr.array;
-  const normArr = normAttr ? normAttr.array : null;
-  const nLM     = lm.length;
-  const tris    = TESS.filter((_,i) => i % densityStep === 0);
-
-  // Face centre from oval — same calculation as buildKnotSystem
-  const OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,
-    379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
-  let fcx=0, fcy=0;
-  OVAL.forEach(i => { fcx += lm[i].x; fcy += lm[i].y; });
-  fcx /= OVAL.length; fcy /= OVAL.length;
-  const SCALE = 3.8;
-
-  let zMin=Infinity, zMax=-Infinity;
-  for (let i=0;i<nLM;i++) {
-    if (lm[i].z<zMin) zMin=lm[i].z;
-    if (lm[i].z>zMax) zMax=lm[i].z;
-  }
-  const zRange = Math.max(0.001, zMax-zMin);
-
-  for (let i=0; i<nLM && i*3+2<posArr.length; i++) {
-    const compVal = 1.0 - (lm[i].z-zMin)/zRange;
-    const tx = (fcx - lm[i].x) * SCALE;
-    const ty = (fcy - lm[i].y) * SCALE;
-    const tz = compVal * depthScale - depthScale * 0.5;
-    posArr[i*3  ] += (tx-posArr[i*3  ])*LERP;
-    posArr[i*3+1] += (ty-posArr[i*3+1])*LERP;
-    posArr[i*3+2] += (tz-posArr[i*3+2])*LERP;
-    compArr[i]    += (compVal-compArr[i])*LERP;
-  }
-
-  // Recompute normals from updated landmark positions, lerp toward them
-  if (normArr) {
-    const fresh = computeNormals(posArr, nLM);
-    for (let i=0;i<nLM*3;i++) normArr[i] += (fresh[i]-normArr[i])*LERP;
-  }
-
-  // Update centroid positions + normals from updated landmarks
-  for (let t=0; t<tris.length; t++) {
-    const [a,b,c] = tris[t];
-    if (a>=nLM||b>=nLM||c>=nLM) continue;
-    const idx = nLM+t;
-    if (idx*3+2>=posArr.length) continue;
-    posArr[idx*3  ] = (posArr[a*3  ]+posArr[b*3  ]+posArr[c*3  ])/3;
-    posArr[idx*3+1] = (posArr[a*3+1]+posArr[b*3+1]+posArr[c*3+1])/3;
-    posArr[idx*3+2] = (posArr[a*3+2]+posArr[b*3+2]+posArr[c*3+2])/3;
-    compArr[idx]    = (compArr[a]+compArr[b]+compArr[c])/3;
-    if (normArr) {
-      const nx=(normArr[a*3]+normArr[b*3]+normArr[c*3])/3;
-      const ny=(normArr[a*3+1]+normArr[b*3+1]+normArr[c*3+1])/3;
-      const nz=(normArr[a*3+2]+normArr[b*3+2]+normArr[c*3+2])/3;
-      const nl=Math.sqrt(nx*nx+ny*ny+nz*nz);
-      normArr[idx*3  ]=nl>1e-6?nx/nl:0;
-      normArr[idx*3+1]=nl>1e-6?ny/nl:0;
-      normArr[idx*3+2]=nl>1e-6?nz/nl:1;
-    }
-  }
-
-  posAttr.needsUpdate  = true;
-  compAttr.needsUpdate = true;
-  if (normAttr) normAttr.needsUpdate = true;
+function onResults(res){
+  if(!res.multiFaceLandmarks?.[0])return;
+  latest=res.multiFaceLandmarks[0];
+  if(!ST.calibrated)return; // wait for explicit calibrate (or auto below)
+  solveFrame(latest);
+  // update active systems
+  const pointMode=(ST.mode==='knots'||ST.mode==='splat'||ST.mode==='realist');
+  if(pointMode||ST.stack) updatePointSystem();
+  if(ST.mode==='skin'||ST.mode==='wire'||ST.stack) updateSkinMesh();
 }
 
-// ════════════════════════════════════════════════
-//  RESIZE
-// ════════════════════════════════════════════════
-window.addEventListener('resize', () => {
-  if (!renderer) return;
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+// ═══════════════════════════════════════════════════════════════
+//  UI WIRING
+// ═══════════════════════════════════════════════════════════════
+function showHint(txt){
+  const h=document.getElementById('hint');
+  h.textContent=txt; h.classList.add('show');
+  clearTimeout(showHint._t); showHint._t=setTimeout(()=>h.classList.remove('show'),3500);
+}
 
-// ════════════════════════════════════════════════
-//  GLOBAL ERROR SURFACE
-//  Unsilences crashes so the button re-enables
-// ════════════════════════════════════════════════
-window.onerror = (msg, src, line) => {
-  console.error('JS Error:', msg, 'line:', line);
-  const btn = document.getElementById('btn-init');
-  if (btn && btn.disabled && btn.textContent !== 'Optics Live') {
-    btn.textContent = 'Error — see console';
-    btn.disabled = false;
+function doCalibrate(){
+  if(!latest){showHint('No face detected');return;}
+  if(calibrate()){
+    sampleColors();
+    applyMode();
+    document.getElementById('b-recenter').disabled=false;
+    document.getElementById('b-snap').textContent='Recalibrate';
+    document.getElementById('b-snap').classList.add('on');
+    document.getElementById('lore').style.opacity='0';
+    showHint('Calibrated · turn your head, open your mouth');
   }
-};
-window.onunhandledrejection = e => {
-  console.error('Promise rejection:', e.reason);
-  const btn = document.getElementById('btn-init');
-  if (btn && btn.disabled && btn.textContent !== 'Optics Live') {
-    btn.textContent = 'Error — see console';
-    btn.disabled = false;
-  }
-};
+}
 
-// Wait for all CDN scripts before allowing init
-window.addEventListener('load', () => {
-  const btn = document.getElementById('btn-init');
-  if (!btn) return;
-  const missing = [
-    typeof THREE    === 'undefined' && 'Three.js',
-    typeof FaceMesh === 'undefined' && 'FaceMesh',
-    typeof Camera   === 'undefined' && 'CameraUtils',
-  ].filter(Boolean);
-  if (missing.length) {
-    btn.textContent = `Missing: ${missing.join(', ')}`;
-    console.error('Missing deps:', missing);
-  } else {
-    btn.textContent = 'Init Optics';
-    btn.disabled = false;
-  }
+function wireUI(){
+  document.getElementById('b-init').onclick=initOptics;
+  document.getElementById('b-snap').onclick=doCalibrate;
+
+  document.getElementById('b-recenter').onclick=()=>{
+    if(latest){calibrate();sampleColors();applyMode();showHint('Recentered');}
+  };
+
+  document.getElementById('b-stack').onclick=()=>{
+    ST.stack=!ST.stack;
+    document.getElementById('b-stack').classList.toggle('on',ST.stack);
+    if(ST.calibrated)applyMode();
+  };
+
+  document.getElementById('b-adv').onclick=()=>{
+    ST.advOpen=!ST.advOpen;
+    document.getElementById('advpanel').classList.toggle('open',ST.advOpen);
+    document.getElementById('b-adv').classList.toggle('on',ST.advOpen);
+  };
+
+  document.querySelectorAll('#modes .pill').forEach(pill=>{
+    pill.onclick=()=>{
+      document.querySelectorAll('#modes .pill').forEach(p=>p.classList.remove('on'));
+      pill.classList.add('on');
+      ST.mode=pill.dataset.mode;
+      if(ST.calibrated)applyMode();
+    };
+  });
+
+  const bind=(id,key,fmt)=>{
+    const el=document.getElementById(id), v=document.getElementById('v-'+id.slice(2));
+    el.oninput=()=>{ST[key]=+el.value; if(v)v.textContent=fmt?fmt(+el.value):el.value;
+      // live updates
+      if(ST.calibrated){
+        if(key==='amt'){ if(knotSys)buildPointSystem(); }
+        else if(key==='grid'){ /* uniform updates in loop */ }
+      }
+    };
+  };
+  bind('s-depth','depth'); bind('s-amt','amt'); bind('s-pulse','pulse');
+  bind('s-grid','grid'); bind('s-op','opacity'); bind('s-smooth','smooth');
+}
+
+// boot
+addEventListener('load',()=>{
+  wireUI();
+  const btn=document.getElementById('b-init');
+  const miss=[typeof THREE==='undefined'&&'three',typeof FaceMesh==='undefined'&&'facemesh',typeof Camera==='undefined'&&'camera'].filter(Boolean);
+  if(miss.length){btn.textContent='Load: '+miss.join(',');}
 });
+window.onerror=(m,s,l)=>{console.error('ERR',m,l);const b=document.getElementById('b-init');if(b&&b.disabled&&!b.classList.contains('go')){b.textContent='Err—see console';b.disabled=false;}};
 </script>
 </body>
 </html>
