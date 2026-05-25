@@ -127,9 +127,9 @@ video#cam{position:fixed;top:-9999px;left:-9999px;width:640px;height:480px}
 
 <div class="dock">
   <div class="row center" id="modes">
-    <div class="pill on" data-mode="knots">Knots</div>
+    <div class="pill on" data-mode="skin">Close Grid</div>
+    <div class="pill" data-mode="knots">Knots</div>
     <div class="pill" data-mode="splat">Splat</div>
-    <div class="pill" data-mode="skin">Skin</div>
     <div class="pill" data-mode="realist">Realist</div>
     <div class="pill" data-mode="wire">Wire</div>
   </div>
@@ -138,9 +138,9 @@ video#cam{position:fixed;top:-9999px;left:-9999px;width:640px;height:480px}
     <div class="sliders">
       <div class="sl"><label>Depth</label><input type="range" id="s-depth" min="0.5" max="8" step="0.1" value="3.5"><span class="v" id="v-depth">3.5</span></div>
       <div class="sl"><label>Knot Amt</label><input type="range" id="s-amt" min="80" max="936" step="20" value="936"><span class="v" id="v-amt">936</span></div>
-      <div class="sl"><label>Pulse</label><input type="range" id="s-pulse" min="0" max="3" step="0.05" value="0.8"><span class="v" id="v-pulse">0.8</span></div>
-      <div class="sl"><label>Grid</label><input type="range" id="s-grid" min="4" max="30" step="1" value="14"><span class="v" id="v-grid">14</span></div>
-      <div class="sl"><label>Opacity</label><input type="range" id="s-op" min="0.1" max="1" step="0.05" value="0.9"><span class="v" id="v-op">0.9</span></div>
+      <div class="sl"><label>Pulse</label><input type="range" id="s-pulse" min="0" max="3" step="0.05" value="0.6"><span class="v" id="v-pulse">0.6</span></div>
+      <div class="sl"><label>Grid</label><input type="range" id="s-grid" min="4" max="30" step="1" value="18"><span class="v" id="v-grid">18</span></div>
+      <div class="sl"><label>Opacity</label><input type="range" id="s-op" min="0.1" max="1" step="0.05" value="0.95"><span class="v" id="v-op">0.95</span></div>
       <div class="sl"><label>Smooth</label><input type="range" id="s-smooth" min="0.05" max="0.8" step="0.05" value="0.35"><span class="v" id="v-smooth">0.35</span></div>
     </div>
   </div>
@@ -278,8 +278,8 @@ const TESS = [
 //  STATE
 // ═══════════════════════════════════════════════════════════════
 const ST = {
-  mode:'knots', stack:false, advOpen:false,
-  depth:3.5, amt:936, pulse:0.8, grid:14, opacity:0.9, smooth:0.35,
+  mode:'skin', stack:false, advOpen:false,
+  depth:3.5, amt:936, pulse:0.6, grid:18, opacity:0.95, smooth:0.35,
   running:false, calibrated:false,
   // calibration baselines (captured once, FIXED — this kills drift)
   neutral:null,        // [468][3] raw landmark positions at calibration
@@ -489,48 +489,119 @@ void main(){
 }`;
 
 // Skin: continuous mesh, crosshair-reticle tile grid (from sketch)
+// ═══════════════════════════════════════════════════════════════
+//  CHUCK CLOSE GRID — the core essence
+//  A rigid grid LOCKED to the face surface (canonical UV, so it
+//  rotates in 3D with the head instead of swimming). Each cell is
+//  an abstract high-chroma mark — concentric oval rings on a
+//  contrasting ground — whose colors are a decomposition of the
+//  sampled skin tone into surprising hues that OPTICALLY AVERAGE
+//  back to flesh at viewing distance. This is Close's actual method.
+// ═══════════════════════════════════════════════════════════════
 const SKIN_VERT=`
-attribute vec3 sCol; attribute float sComp;
+attribute vec3 sCol; attribute float sComp; attribute vec2 sUV;
 varying vec3 fCol; varying float fComp; varying vec2 fUV;
 uniform float uTime; uniform float uPulse;
 void main(){
   fCol=sCol; fComp=sComp;
-  fUV=vec2(position.x*0.5+0.5, position.y*0.5+0.5);
-  vec3 p=position;
-  p.z+=sin(uTime*uPulse*0.6+position.x*3.0)*0.01*sComp;
+  fUV=sUV;                         // canonical face-space coord — grid tattooed to face
+  vec3 p=position;                 // world position (rotates with head pose)
+  p.z+=sin(uTime*uPulse*0.5+sUV.x*4.0+sUV.y*3.0)*0.008*sComp;
   gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);
 }`;
+
 const SKIN_FRAG=`
 varying vec3 fCol; varying float fComp; varying vec2 fUV;
 uniform float uTime; uniform float uPulse; uniform float uOpacity; uniform float uGrid;
+
+vec3 rgb2hsv(vec3 c){
+  vec4 K=vec4(0.0,-1.0/3.0,2.0/3.0,-1.0);
+  vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));
+  vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));
+  float d=q.x-min(q.w,q.y);
+  return vec3(abs(q.z+(q.w-q.y)/(6.0*d+1e-10)), d/(q.x+1e-10), q.x);
+}
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(0.0,1.0/3.0,2.0/3.0))*6.0-3.0);
+  return c.z*mix(vec3(1.0),clamp(p-1.0,0.0,1.0),c.y);
+}
+float hash(vec2 c){ return fract(sin(dot(c,vec2(127.1,311.7)))*43758.5453); }
+
 void main(){
-  vec2 sc=fUV*uGrid; vec2 cell=floor(sc); vec2 p=(sc-cell-0.5)*2.0;
-  float h1=fract(sin(dot(cell,vec2(127.1,311.7)))*43758.5453);
-  vec3 fc=max(fCol,vec3(0.05,0.04,0.03));
-  float lum=dot(fc,vec3(0.299,0.587,0.114));
-  fc=mix(vec3(lum),fc,2.4); fc=pow(clamp(fc,0.001,1.0),vec3(0.48)); fc=clamp(fc*1.5,0.0,1.0);
-  vec3 bg=fc*0.12;
-  float bX=1.0-smoothstep(0.0,0.10,1.0-abs(p.x));
-  float bY=1.0-smoothstep(0.0,0.10,1.0-abs(p.y));
-  float border=max(bX,bY);
-  vec3 borderCol=clamp(vec3(fc.r*0.6,fc.g*0.3,fc.b*1.4)*2.0,0.0,1.0);
-  float aX=1.0-smoothstep(0.0,0.04,abs(p.x));
-  float aY=1.0-smoothstep(0.0,0.04,abs(p.y));
-  float arm=max(aX,aY);
-  vec3 armCol=clamp(vec3(fc.r*0.4,fc.g*1.3,fc.b*0.4),0.0,1.0);
-  float d=length(p);
-  float r1=1.0-smoothstep(0.0,0.045,abs(d-0.26));
-  float r2=1.0-smoothstep(0.0,0.045,abs(d-0.52));
-  float r3=1.0-smoothstep(0.0,0.045,abs(d-0.78));
-  float pulse=sin(uTime*uPulse*1.2+h1*6.28)*0.5+0.5; r2*=0.7+pulse*0.4;
-  vec3 r1c=clamp(vec3(fc.r*2.0,fc.g*0.3,fc.b*0.2),0.0,1.0);
-  vec3 r2c=clamp(vec3(fc.r*0.2,fc.g*2.0,fc.b*0.3),0.0,1.0);
-  vec3 r3c=clamp(vec3(fc.r*0.2,fc.g*0.3,fc.b*2.0),0.0,1.0);
-  float cDot=1.0-smoothstep(0.08,0.12,d);
-  vec3 col=bg;
-  col=mix(col,r1c,r1); col=mix(col,r2c,r2); col=mix(col,r3c,r3);
-  col=mix(col,armCol,arm*0.85); col=mix(col,borderCol,border);
-  col=mix(col,fc*1.8,cDot);
+  // ── Tilted grid (Close's diagonal lattice) ──
+  float ang=0.20;                              // ~11.5° tilt
+  float ca=cos(ang), sa=sin(ang);
+  vec2 uvR=vec2(fUV.x*ca-fUV.y*sa, fUV.x*sa+fUV.y*ca);
+
+  vec2 sc=uvR*uGrid;
+  vec2 cell=floor(sc);
+  vec2 p=(sc-cell-0.5)*2.0;                     // -1..1 within cell
+
+  // Per-cell randomness → hand-built irregularity
+  float h1=hash(cell);
+  float h2=hash(cell+19.7);
+  float h3=hash(cell+47.3);
+
+  // ── Sample skin tone for this cell, lift from dark video ──
+  vec3 fc=max(fCol,vec3(0.02));
+  vec3 hsv=rgb2hsv(fc);
+  hsv.y=clamp(hsv.y*1.5+0.15,0.0,1.0);          // punch saturation
+  hsv.z=pow(hsv.z,0.7)*1.15;                     // lift value
+
+  // ── COLOR DECOMPOSITION (the Close trick) ──
+  // Three hues that optically average back to the skin tone:
+  //  ground = hue jittered, dark, saturated
+  //  ring   = complementary-ish, mid
+  //  core   = same hue, bright
+  float hueJit=(h1-0.5)*0.12;                    // per-cell hue wobble
+  vec3 ground = hsv2rgb(vec3(fract(hsv.x+hueJit+0.03), min(1.0,hsv.y*1.1), hsv.z*0.30));
+  vec3 ringA  = hsv2rgb(vec3(fract(hsv.x+0.45+hueJit), 0.95,             hsv.z*0.9 ));
+  vec3 ringB  = hsv2rgb(vec3(fract(hsv.x-0.08+hueJit), 0.9,              hsv.z*1.0 ));
+  vec3 core   = hsv2rgb(vec3(fract(hsv.x+hueJit),      min(1.0,hsv.y*0.8),min(1.0,hsv.z*1.4)));
+
+  // ── Oval nucleus — per-cell aspect + rotation (Close's lozenges) ──
+  float cellRot=(h2-0.5)*1.2;
+  float cr=cos(cellRot), sr=sin(cellRot);
+  vec2 rp=vec2(cr*p.x-sr*p.y, sr*p.x+cr*p.y);
+  float aspect=0.78+h3*0.5;                       // ovalness varies
+  vec2 op=vec2(rp.x/aspect, rp.y*aspect);
+  float d=length(op);
+
+  // ── Build cell: ground fills whole square (NO GAPS) ──
+  vec3 col=ground;
+
+  // breathing pulse on ring radius
+  float pul=sin(uTime*uPulse*0.9+h1*6.28)*0.5+0.5;
+
+  // concentric oval rings
+  float rad1=0.30+0.04*pul;
+  float rad2=0.55;
+  float rad3=0.80;
+  float rw=0.13;
+  float ring1=1.0-smoothstep(rw,rw+0.10,abs(d-rad1));
+  float ring2=1.0-smoothstep(rw,rw+0.10,abs(d-rad2));
+  float ring3=1.0-smoothstep(rw,rw+0.10,abs(d-rad3));
+
+  col=mix(col,ringB,ring3*0.9);
+  col=mix(col,ringA,ring2*0.95);
+  col=mix(col,ringB,ring1*0.95);
+
+  // bright core nucleus
+  float coreM=1.0-smoothstep(0.12,0.20,d);
+  col=mix(col,core,coreM);
+
+  // tiny hot center dot
+  float dot=1.0-smoothstep(0.04,0.08,d);
+  col=mix(col,min(core*1.5+0.1,1.0),dot);
+
+  // subtle cell separation — thin dark gutter only at very edge (keeps grid legible, minimal gap)
+  float edge=max(abs(p.x),abs(p.y));
+  float gut=smoothstep(0.93,1.0,edge);
+  col*=1.0-gut*0.45;
+
+  // depth shading — recessed cells slightly darker/cooler
+  col*=mix(0.7,1.12,fComp);
+
   col=clamp(col,0.0,1.0);
   gl_FragColor=vec4(col,uOpacity);
 }`;
@@ -651,6 +722,7 @@ function buildSkinMesh(){
   const pos=new Float32Array(NLM*3);
   const col=new Float32Array(NLM*3);
   const comp=new Float32Array(NLM);
+  const uv=new Float32Array(NLM*2);
   const C=ST.colors;
   for(let i=0;i<NLM;i++){
     const w=worldPos(i);
@@ -658,6 +730,9 @@ function buildSkinMesh(){
     if(C){col[i*3]=C[i*3];col[i*3+1]=C[i*3+1];col[i*3+2]=C[i*3+2];}
     const cz=ST.canonPts[i][2];
     comp[i]=Math.max(0,Math.min(1,0.5-cz*1.5));
+    // canonical face-space UV — stable, grid stays locked to face & rotates in 3D
+    uv[i*2]=ST.canonPts[i][0];
+    uv[i*2+1]=ST.canonPts[i][1];
   }
   const idx=[];
   for(const [a,b,c] of TESS){ if(a<NLM&&b<NLM&&c<NLM) idx.push(a,b,c); }
@@ -665,6 +740,7 @@ function buildSkinMesh(){
   geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
   geo.setAttribute('sCol',new THREE.Float32BufferAttribute(col,3));
   geo.setAttribute('sComp',new THREE.Float32BufferAttribute(comp,1));
+  geo.setAttribute('sUV',new THREE.Float32BufferAttribute(uv,2));
   geo.setIndex(idx);
   const mat=new THREE.ShaderMaterial({
     vertexShader:SKIN_VERT,fragmentShader:SKIN_FRAG,
@@ -679,13 +755,16 @@ function updateSkinMesh(){
   if(!skinMesh)return;
   const pos=skinMesh.geometry.attributes.position;
   const comp=skinMesh.geometry.attributes.sComp;
+  const uv=skinMesh.geometry.attributes.sUV;
   for(let i=0;i<NLM;i++){
     const w=worldPos(i);
     pos.array[i*3]=w[0];pos.array[i*3+1]=w[1];pos.array[i*3+2]=w[2];
     const cz=ST.canonPts[i][2];
     comp.array[i]=Math.max(0,Math.min(1,0.5-cz*1.5));
+    uv.array[i*2]=ST.canonPts[i][0];
+    uv.array[i*2+1]=ST.canonPts[i][1];
   }
-  pos.needsUpdate=true; comp.needsUpdate=true;
+  pos.needsUpdate=true; comp.needsUpdate=true; uv.needsUpdate=true;
   skinMesh.geometry.computeVertexNormals();
   const u=skinMesh.material.uniforms;
   u.uPulse.value=ST.pulse;u.uOpacity.value=ST.opacity;u.uGrid.value=ST.grid;
