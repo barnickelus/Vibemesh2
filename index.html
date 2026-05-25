@@ -136,7 +136,7 @@ video#cam{position:fixed;top:-9999px;left:-9999px;width:640px;height:480px}
 
   <div class="collapse" id="advpanel">
     <div class="sliders">
-      <div class="sl"><label>Depth</label><input type="range" id="s-depth" min="0.5" max="8" step="0.1" value="3.5"><span class="v" id="v-depth">3.5</span></div>
+      <div class="sl"><label>Depth</label><input type="range" id="s-depth" min="0.3" max="5" step="0.1" value="2.0"><span class="v" id="v-depth">2.0</span></div>
       <div class="sl"><label>Knot Amt</label><input type="range" id="s-amt" min="80" max="936" step="20" value="936"><span class="v" id="v-amt">936</span></div>
       <div class="sl"><label>Pulse</label><input type="range" id="s-pulse" min="0" max="3" step="0.05" value="0.6"><span class="v" id="v-pulse">0.6</span></div>
       <div class="sl"><label>Grid</label><input type="range" id="s-grid" min="4" max="30" step="1" value="18"><span class="v" id="v-grid">18</span></div>
@@ -279,7 +279,7 @@ const TESS = [
 // ═══════════════════════════════════════════════════════════════
 const ST = {
   mode:'skin', stack:false, advOpen:false,
-  depth:3.5, amt:936, pulse:0.6, grid:18, opacity:0.95, smooth:0.35,
+  depth:2.0, amt:936, pulse:0.6, grid:18, opacity:0.95, smooth:0.35,
   running:false, calibrated:false,
   // calibration baselines (captured once, FIXED — this kills drift)
   neutral:null,        // [468][3] raw landmark positions at calibration
@@ -308,29 +308,30 @@ function calibrate(){
   if(!latest) return false;
   const lm=latest;
 
-  // Store raw neutral
   ST.neutral = lm.map(p=>[p.x,p.y,p.z]);
 
-  // Rigid centroid (mean of rigid points)
   let c=[0,0,0];
   for(const i of RIGID_IDX){ c[0]+=lm[i].x; c[1]+=lm[i].y; c[2]+=lm[i].z; }
   c=V.scale(c,1/RIGID_IDX.length);
   ST.neutralCentroid=c;
 
-  // Face scale = inter-ocular distance (landmarks 33 & 263)
+  // Face scale = inter-ocular distance (≈0.06 in MediaPipe normalized units)
   ST.neutralScale = Math.hypot(
     lm[33].x-lm[263].x, lm[33].y-lm[263].y, lm[33].z-lm[263].z) || 0.1;
 
-  // FIXED depth normalization captured now, reused every frame
   let zmin=Infinity,zmax=-Infinity;
   for(let i=0;i<lm.length;i++){ if(lm[i].z<zmin)zmin=lm[i].z; if(lm[i].z>zmax)zmax=lm[i].z; }
   ST.zMin=zmin; ST.zRange=Math.max(1e-3,zmax-zmin);
 
-  // Canonical points = neutral, centered & scale-normalized, identity pose
+  // Canonical points: normalize so inter-ocular = 1 unit.
+  // Face is then ~3 units wide, ~4 tall. Z (depth) is naturally ~0.5 of that.
+  // We do NOT pre-multiply by neutralScale inverse blindly — instead target a
+  // fixed display size so the face frames nicely regardless of camera distance.
+  const inv = 1/ST.neutralScale;
   ST.canonPts = lm.map(p=>[
-    (p.x-c[0])/ST.neutralScale,
-    (p.y-c[1])/ST.neutralScale,
-    (p.z-c[2])/ST.neutralScale,
+    (p.x-c[0])*inv,
+    (p.y-c[1])*inv,
+    (p.z-c[2])*inv,
   ]);
 
   ST.calibrated=true;
@@ -404,10 +405,13 @@ function reorthonormalize(m){
 function worldPos(i){
   const cp=ST.canonPts[i];
   const r=mat3mulVec(ST.poseR,cp);
-  const s=ST.depth;
-  // MediaPipe Z is negative toward camera. Negate so the face bulges
-  // OUTWARD (toward viewer). Mirror X for selfie; flip Y for screen.
-  return [ -r[0]*s, -r[1]*s, -r[2]*s ];
+  // Fixed XY scale: 1 canonical unit (inter-ocular) -> 0.5 scene units.
+  // Face ends ~1.6 wide, frames nicely in 40deg camera at z=4.2.
+  const S=0.5;
+  // Z relief is shallow. depth slider scales ONLY the forward/back relief,
+  // not the whole head — so features stay readable and head never balloons.
+  const zRelief=0.30*ST.depth;
+  return [ -r[0]*S, -r[1]*S, -r[2]*zRelief ];
 }
 
 // ═══════════════════════════════════════════════════════════════
