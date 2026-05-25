@@ -403,9 +403,11 @@ function reorthonormalize(m){
 // Mirrored X for selfie view. Returns [x,y,z] in scene units.
 function worldPos(i){
   const cp=ST.canonPts[i];
-  const r=mat3mulVec(ST.poseR,cp);   // apply head rotation in 3D
+  const r=mat3mulVec(ST.poseR,cp);
   const s=ST.depth;
-  return [ -r[0]*s, -r[1]*s, r[2]*s ]; // mirror X, flip Y for screen
+  // MediaPipe Z is negative toward camera. Negate so the face bulges
+  // OUTWARD (toward viewer). Mirror X for selfie; flip Y for screen.
+  return [ -r[0]*s, -r[1]*s, -r[2]*s ];
 }
 
 // ═══════════════════════════════════════════════════════════════
