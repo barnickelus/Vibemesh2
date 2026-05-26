@@ -835,6 +835,9 @@ uniform float uTime;
 uniform float uGrid;
 uniform float uStyle;
 uniform float uMirror;
+uniform vec2  uFaceC;
+uniform vec2  uFaceR;
+uniform float uHasFace;
 vec3 rgb2hsv(vec3 c){
   vec4 K=vec4(0.,-1./3.,2./3.,-1.);
   vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));
@@ -856,58 +859,69 @@ vec2 mapUV(vec2 uv){
   if(uMirror>0.5) t.x=1.0-t.x;
   return t;
 }
-float detail(vec2 uv, vec2 px){
-  float l=dot(texture2D(uTex,uv-vec2(px.x,0.)).rgb,vec3(0.299,0.587,0.114));
-  float r=dot(texture2D(uTex,uv+vec2(px.x,0.)).rgb,vec3(0.299,0.587,0.114));
-  float u=dot(texture2D(uTex,uv-vec2(0.,px.y)).rgb,vec3(0.299,0.587,0.114));
-  float d=dot(texture2D(uTex,uv+vec2(0.,px.y)).rgb,vec3(0.299,0.587,0.114));
-  return clamp((abs(r-l)+abs(d-u))*3.0,0.0,1.0);
-}
 void main(){
-  vec2 px=1.0/uVidRes;
   vec2 baseUV=mapUV(vUv);
-  if(baseUV.x<0.0||baseUV.x>1.0||baseUV.y<0.0||baseUV.y>1.0){ gl_FragColor=vec4(0.,0.,0.,1.); return; }
+  if(baseUV.x<0.0||baseUV.x>1.0||baseUV.y<0.0||baseUV.y>1.0){ gl_FragColor=vec4(0.02,0.02,0.03,1.); return; }
   vec3 photo=texture2D(uTex,baseUV).rgb;
-  float det=detail(baseUV,px*1.5);
+
+  // ── Face mask: soft ellipse around the detected face ──
+  // baseUV (after mapUV) is in RAW video-sample space — same space as the
+  // landmark-derived uFaceC. Compare directly, no extra mirror.
+  vec2 dF=(baseUV-uFaceC)/uFaceR;
+  float fd=length(dF);
+  float mask=uHasFace*(1.0-smoothstep(0.85,1.15,fd));
+
+  // ── Cell grid (only matters inside mask) ──
   float ang=0.18; float ca=cos(ang),sa=sin(ang);
   vec2 g=vec2(baseUV.x*ca-baseUV.y*sa, baseUV.x*sa+baseUV.y*ca);
   g.x*=uVidRes.x/uVidRes.y;
   vec2 sc=g*uGrid;
   vec2 cell=floor(sc);
   vec2 p=(fract(sc)-0.5)*2.0;
-  vec2 cellCenterG=(cell+0.5)/uGrid;
-  cellCenterG.x/=uVidRes.x/uVidRes.y;
-  vec2 cc=vec2(cellCenterG.x*ca+cellCenterG.y*sa, -cellCenterG.x*sa+cellCenterG.y*ca);
+  vec2 ccG=(cell+0.5)/uGrid;
+  ccG.x/=uVidRes.x/uVidRes.y;
+  vec2 cc=vec2(ccG.x*ca+ccG.y*sa, -ccG.x*sa+ccG.y*ca);
   vec3 cellCol=texture2D(uTex,clamp(cc,0.0,1.0)).rgb;
+
+  // Close color decomposition
   vec3 hsv=rgb2hsv(max(cellCol,vec3(0.02)));
-  hsv.y=clamp(hsv.y*1.4+0.12,0.0,1.0);
-  hsv.z=pow(hsv.z,0.85)*1.08;
+  hsv.y=clamp(hsv.y*1.35+0.10,0.0,1.0);
+  hsv.z=pow(hsv.z,0.9)*1.05;
   float h1=hash(cell), h2=hash(cell+19.7), h3=hash(cell+47.3);
-  float hj=(h1-0.5)*0.10;
-  vec3 ground=hsv2rgb(vec3(fract(hsv.x+hj+0.03),min(1.0,hsv.y*1.05),hsv.z*0.45));
-  vec3 ringA =hsv2rgb(vec3(fract(hsv.x+0.42+hj),0.9,hsv.z*0.95));
-  vec3 ringB =hsv2rgb(vec3(fract(hsv.x-0.06+hj),0.85,hsv.z));
-  vec3 core  =hsv2rgb(vec3(fract(hsv.x+hj),min(1.0,hsv.y*0.85),min(1.0,hsv.z*1.3)));
+  float hj=(h1-0.5)*0.08;
+  vec3 ground=hsv2rgb(vec3(fract(hsv.x+hj+0.02),min(1.0,hsv.y*1.05),hsv.z*0.5));
+  vec3 ringA =hsv2rgb(vec3(fract(hsv.x+0.42+hj),0.85,hsv.z*0.95));
+  vec3 ringB =hsv2rgb(vec3(fract(hsv.x-0.05+hj),0.8,hsv.z));
+  vec3 core  =hsv2rgb(vec3(fract(hsv.x+hj),min(1.0,hsv.y*0.85),min(1.0,hsv.z*1.25)));
+
   float rot=(h2-0.5)*1.0; float cr=cos(rot),sr=sin(rot);
   vec2 rp=vec2(cr*p.x-sr*p.y, sr*p.x+cr*p.y);
-  float asp=0.8+h3*0.4; vec2 op=vec2(rp.x/asp,rp.y*asp);
+  float asp=0.82+h3*0.36; vec2 op=vec2(rp.x/asp,rp.y*asp);
   float d=length(op);
+
   vec3 mark=ground;
-  float pul=sin(uTime*0.8+h1*6.28)*0.5+0.5;
-  float r1=1.0-smoothstep(0.12,0.24,abs(d-(0.30+0.03*pul)));
-  float r2=1.0-smoothstep(0.12,0.24,abs(d-0.55));
-  float r3=1.0-smoothstep(0.12,0.24,abs(d-0.80));
-  mark=mix(mark,ringB,r3*0.85);
+  float r1=1.0-smoothstep(0.12,0.22,abs(d-0.30));
+  float r2=1.0-smoothstep(0.12,0.22,abs(d-0.56));
   mark=mix(mark,ringA,r2*0.9);
   mark=mix(mark,ringB,r1*0.9);
-  float coreM=1.0-smoothstep(0.10,0.18,d);
+  float coreM=1.0-smoothstep(0.10,0.17,d);
   mark=mix(mark,core,coreM);
   float edge=max(abs(p.x),abs(p.y));
-  mark*=1.0-smoothstep(0.92,1.0,edge)*0.4;
-  float mosaicAmt=uStyle*(1.0-smoothstep(0.15,0.5,det));
+  mark*=1.0-smoothstep(0.90,1.0,edge)*0.35;
+
+  // Multiply mark by photo luminance so the face's own light/shadow/form shows
   float pl=dot(photo,vec3(0.299,0.587,0.114));
-  vec3 mosaic=mark*(0.55+pl*0.8);
-  vec3 outc=mix(photo,mosaic,mosaicAmt);
+  vec3 mosaic=mark*(0.5+pl*0.9);
+
+  // ── Compose ──
+  // Inside face: blend photo->mosaic by uStyle*mask.
+  // Outside face: dark, with photo barely visible.
+  vec3 faceOut=mix(photo, mosaic, uStyle*mask);
+  vec3 bg=photo*0.12;                 // dim background so the portrait pops
+  vec3 outc=mix(bg, faceOut, mask);
+  // keep a thin photographic vignette of the real face under low style
+  outc=mix(outc, photo, (1.0-uStyle)*mask*0.0);
+
   gl_FragColor=vec4(outc,1.0);
 }
 `;
@@ -938,6 +952,9 @@ function initThree(){
       uVidRes:{value:new THREE.Vector2(640,480)},
       uTime:{value:0}, uGrid:{value:ST.grid*2.2},
       uStyle:{value:1.0}, uMirror:{value:1.0},
+      uFaceC:{value:new THREE.Vector2(0.5,0.5)},
+      uFaceR:{value:new THREE.Vector2(0.25,0.32)},
+      uHasFace:{value:0.0},
     },
     depthTest:false, depthWrite:false,
   });
@@ -1037,9 +1054,31 @@ async function initOptics(){
 function onResults(res){
   if(!res.multiFaceLandmarks?.[0])return;
   latest=res.multiFaceLandmarks[0];
-  if(!ST.calibrated)return; // wait for explicit calibrate (or auto below)
+
+  // ── Always compute face mask bounds (filter needs this, no calibration req) ──
+  if(filterMat){
+    // Face oval bounding box in video UV space
+    let minx=9,maxx=-9,miny=9,maxy=-9;
+    for(const i of OVAL_IDX){
+      const x=latest[i].x, y=latest[i].y;
+      if(x<minx)minx=x; if(x>maxx)maxx=x;
+      if(y<miny)miny=y; if(y>maxy)maxy=y;
+    }
+    // center + radii, padded slightly to include full face
+    const cx=(minx+maxx)*0.5, cy=(miny+maxy)*0.5;
+    const rx=(maxx-minx)*0.62, ry=(maxy-miny)*0.60;
+    // smooth to avoid jitter
+    const F=ST._mask||(ST._mask={cx,cy,rx,ry});
+    const k=0.4;
+    F.cx+=(cx-F.cx)*k; F.cy+=(cy-F.cy)*k;
+    F.rx+=(rx-F.rx)*k; F.ry+=(ry-F.ry)*k;
+    filterMat.uniforms.uFaceC.value.set(F.cx,F.cy);
+    filterMat.uniforms.uFaceR.value.set(F.rx,F.ry);
+    filterMat.uniforms.uHasFace.value=1.0;
+  }
+
+  if(!ST.calibrated)return;
   solveFrame(latest);
-  // update active systems
   const pointMode=(ST.mode==='knots'||ST.mode==='splat'||ST.mode==='realist');
   if(pointMode||ST.stack) updatePointSystem();
   if(ST.mode==='skin'||ST.mode==='wire'||ST.stack) updateSkinMesh();
