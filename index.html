@@ -865,11 +865,12 @@ void main(){
   vec3 photo=texture2D(uTex,baseUV).rgb;
 
   // ── Face mask: soft ellipse around the detected face ──
-  // baseUV (after mapUV) is in RAW video-sample space — same space as the
-  // landmark-derived uFaceC. Compare directly, no extra mirror.
-  vec2 dF=(baseUV-uFaceC)/uFaceR;
+  // baseUV is in texture-sample space. MediaPipe landmark Y is top-down,
+  // but the VideoTexture V axis is bottom-up — flip uFaceC.y to match.
+  vec2 faceC=vec2(uFaceC.x, 1.0-uFaceC.y);
+  vec2 dF=(baseUV-faceC)/uFaceR;
   float fd=length(dF);
-  float mask=uHasFace*(1.0-smoothstep(0.85,1.15,fd));
+  float mask=uHasFace*(1.0-smoothstep(0.85,1.18,fd));
 
   // ── Cell grid (only matters inside mask) ──
   float ang=0.18; float ca=cos(ang),sa=sin(ang);
@@ -1066,7 +1067,7 @@ function onResults(res){
     }
     // center + radii, padded slightly to include full face
     const cx=(minx+maxx)*0.5, cy=(miny+maxy)*0.5;
-    const rx=(maxx-minx)*0.62, ry=(maxy-miny)*0.60;
+    const rx=(maxx-minx)*0.85, ry=(maxy-miny)*0.80;
     // smooth to avoid jitter
     const F=ST._mask||(ST._mask={cx,cy,rx,ry});
     const k=0.4;
