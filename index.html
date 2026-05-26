@@ -127,7 +127,8 @@ video#cam{position:fixed;top:-9999px;left:-9999px;width:640px;height:480px}
 
 <div class="dock">
   <div class="row center" id="modes">
-    <div class="pill on" data-mode="skin">Close Grid</div>
+    <div class="pill on" data-mode="filter">Close Filter</div>
+    <div class="pill" data-mode="skin">Close 3D</div>
     <div class="pill" data-mode="knots">Knots</div>
     <div class="pill" data-mode="splat">Splat</div>
     <div class="pill" data-mode="realist">Realist</div>
@@ -278,7 +279,7 @@ const TESS = [
 //  STATE
 // ═══════════════════════════════════════════════════════════════
 const ST = {
-  mode:'skin', stack:false, advOpen:false,
+  mode:'filter', stack:false, advOpen:false,
   depth:2.0, amt:936, pulse:0.6, grid:18, opacity:0.95, smooth:0.35,
   running:false, calibrated:false,
   // calibration baselines (captured once, FIXED — this kills drift)
@@ -815,6 +816,103 @@ function sampleColors(){
 // ═══════════════════════════════════════════════════════════════
 //  THREE SETUP + RENDER LOOP
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//  CLOSE FILTER — 2D screen-space video filter (matches reference)
+//  Live video → Chuck Close cell mosaic. Detailed areas (eyes, lips,
+//  nostrils) stay photographic; flat skin becomes colored lozenges.
+// ═══════════════════════════════════════════════════════════════
+const FILTER_VERT=`
+varying vec2 vUv;
+void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }
+`;
+const FILTER_FRAG=`
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2  uRes;
+uniform vec2  uVidRes;
+uniform float uTime;
+uniform float uGrid;
+uniform float uStyle;
+uniform float uMirror;
+vec3 rgb2hsv(vec3 c){
+  vec4 K=vec4(0.,-1./3.,2./3.,-1.);
+  vec4 p=mix(vec4(c.bg,K.wz),vec4(c.gb,K.xy),step(c.b,c.g));
+  vec4 q=mix(vec4(p.xyw,c.r),vec4(c.r,p.yzx),step(p.x,c.r));
+  float d=q.x-min(q.w,q.y);
+  return vec3(abs(q.z+(q.w-q.y)/(6.*d+1e-10)),d/(q.x+1e-10),q.x);
+}
+vec3 hsv2rgb(vec3 c){
+  vec3 p=abs(fract(c.xxx+vec3(0.,1./3.,2./3.))*6.-3.);
+  return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
+}
+float hash(vec2 c){ return fract(sin(dot(c,vec2(127.1,311.7)))*43758.5453); }
+vec2 mapUV(vec2 uv){
+  float screenA=uRes.x/uRes.y;
+  float vidA=uVidRes.x/uVidRes.y;
+  vec2 t=uv;
+  if(screenA>vidA){ t.y=(uv.y-0.5)*(screenA/vidA)+0.5; }
+  else { t.x=(uv.x-0.5)*(vidA/screenA)+0.5; }
+  if(uMirror>0.5) t.x=1.0-t.x;
+  return t;
+}
+float detail(vec2 uv, vec2 px){
+  float l=dot(texture2D(uTex,uv-vec2(px.x,0.)).rgb,vec3(0.299,0.587,0.114));
+  float r=dot(texture2D(uTex,uv+vec2(px.x,0.)).rgb,vec3(0.299,0.587,0.114));
+  float u=dot(texture2D(uTex,uv-vec2(0.,px.y)).rgb,vec3(0.299,0.587,0.114));
+  float d=dot(texture2D(uTex,uv+vec2(0.,px.y)).rgb,vec3(0.299,0.587,0.114));
+  return clamp((abs(r-l)+abs(d-u))*3.0,0.0,1.0);
+}
+void main(){
+  vec2 px=1.0/uVidRes;
+  vec2 baseUV=mapUV(vUv);
+  if(baseUV.x<0.0||baseUV.x>1.0||baseUV.y<0.0||baseUV.y>1.0){ gl_FragColor=vec4(0.,0.,0.,1.); return; }
+  vec3 photo=texture2D(uTex,baseUV).rgb;
+  float det=detail(baseUV,px*1.5);
+  float ang=0.18; float ca=cos(ang),sa=sin(ang);
+  vec2 g=vec2(baseUV.x*ca-baseUV.y*sa, baseUV.x*sa+baseUV.y*ca);
+  g.x*=uVidRes.x/uVidRes.y;
+  vec2 sc=g*uGrid;
+  vec2 cell=floor(sc);
+  vec2 p=(fract(sc)-0.5)*2.0;
+  vec2 cellCenterG=(cell+0.5)/uGrid;
+  cellCenterG.x/=uVidRes.x/uVidRes.y;
+  vec2 cc=vec2(cellCenterG.x*ca+cellCenterG.y*sa, -cellCenterG.x*sa+cellCenterG.y*ca);
+  vec3 cellCol=texture2D(uTex,clamp(cc,0.0,1.0)).rgb;
+  vec3 hsv=rgb2hsv(max(cellCol,vec3(0.02)));
+  hsv.y=clamp(hsv.y*1.4+0.12,0.0,1.0);
+  hsv.z=pow(hsv.z,0.85)*1.08;
+  float h1=hash(cell), h2=hash(cell+19.7), h3=hash(cell+47.3);
+  float hj=(h1-0.5)*0.10;
+  vec3 ground=hsv2rgb(vec3(fract(hsv.x+hj+0.03),min(1.0,hsv.y*1.05),hsv.z*0.45));
+  vec3 ringA =hsv2rgb(vec3(fract(hsv.x+0.42+hj),0.9,hsv.z*0.95));
+  vec3 ringB =hsv2rgb(vec3(fract(hsv.x-0.06+hj),0.85,hsv.z));
+  vec3 core  =hsv2rgb(vec3(fract(hsv.x+hj),min(1.0,hsv.y*0.85),min(1.0,hsv.z*1.3)));
+  float rot=(h2-0.5)*1.0; float cr=cos(rot),sr=sin(rot);
+  vec2 rp=vec2(cr*p.x-sr*p.y, sr*p.x+cr*p.y);
+  float asp=0.8+h3*0.4; vec2 op=vec2(rp.x/asp,rp.y*asp);
+  float d=length(op);
+  vec3 mark=ground;
+  float pul=sin(uTime*0.8+h1*6.28)*0.5+0.5;
+  float r1=1.0-smoothstep(0.12,0.24,abs(d-(0.30+0.03*pul)));
+  float r2=1.0-smoothstep(0.12,0.24,abs(d-0.55));
+  float r3=1.0-smoothstep(0.12,0.24,abs(d-0.80));
+  mark=mix(mark,ringB,r3*0.85);
+  mark=mix(mark,ringA,r2*0.9);
+  mark=mix(mark,ringB,r1*0.9);
+  float coreM=1.0-smoothstep(0.10,0.18,d);
+  mark=mix(mark,core,coreM);
+  float edge=max(abs(p.x),abs(p.y));
+  mark*=1.0-smoothstep(0.92,1.0,edge)*0.4;
+  float mosaicAmt=uStyle*(1.0-smoothstep(0.15,0.5,det));
+  float pl=dot(photo,vec3(0.299,0.587,0.114));
+  vec3 mosaic=mark*(0.55+pl*0.8);
+  vec3 outc=mix(photo,mosaic,mosaicAmt);
+  gl_FragColor=vec4(outc,1.0);
+}
+`;
+let filterScene=null,filterCam=null,filterMat=null,videoTex=null;
+
 function initThree(){
   gl=document.getElementById('gl');
   scene=new THREE.Scene();
@@ -824,17 +922,51 @@ function initThree(){
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   renderer.setSize(innerWidth,innerHeight);
   renderer.setClearColor(0,0);
+
+  // ── Fullscreen filter pass (Close video filter) ──
+  filterScene=new THREE.Scene();
+  filterCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+  const vid=document.getElementById('cam');
+  videoTex=new THREE.VideoTexture(vid);
+  videoTex.minFilter=THREE.LinearFilter;
+  videoTex.magFilter=THREE.LinearFilter;
+  filterMat=new THREE.ShaderMaterial({
+    vertexShader:FILTER_VERT, fragmentShader:FILTER_FRAG,
+    uniforms:{
+      uTex:{value:videoTex},
+      uRes:{value:new THREE.Vector2(innerWidth,innerHeight)},
+      uVidRes:{value:new THREE.Vector2(640,480)},
+      uTime:{value:0}, uGrid:{value:ST.grid*2.2},
+      uStyle:{value:1.0}, uMirror:{value:1.0},
+    },
+    depthTest:false, depthWrite:false,
+  });
+  const fq=new THREE.Mesh(new THREE.PlaneGeometry(2,2), filterMat);
+  filterScene.add(fq);
+
   addEventListener('resize',()=>{
     camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
     renderer.setSize(innerWidth,innerHeight);
+    if(filterMat) filterMat.uniforms.uRes.value.set(innerWidth,innerHeight);
   });
   const clock=new THREE.Clock();
   (function loop(){
     requestAnimationFrame(loop);
     const t=clock.getElapsedTime();
-    if(knotSys&&knotSys.visible){knotSys.material.uniforms.uTime.value=t;}
-    if(skinMesh&&skinMesh.visible){skinMesh.material.uniforms.uTime.value=t;}
-    renderer.render(scene,camera);
+    if(ST.mode==='filter'){
+      // 2D video filter pass — no mesh, no calibration needed
+      if(filterMat){
+        filterMat.uniforms.uTime.value=t;
+        filterMat.uniforms.uGrid.value=ST.grid*2.2;
+        const vid=document.getElementById('cam');
+        if(vid.videoWidth) filterMat.uniforms.uVidRes.value.set(vid.videoWidth,vid.videoHeight);
+      }
+      renderer.render(filterScene,filterCam);
+    } else {
+      if(knotSys&&knotSys.visible){knotSys.material.uniforms.uTime.value=t;}
+      if(skinMesh&&skinMesh.visible){skinMesh.material.uniforms.uTime.value=t;}
+      renderer.render(scene,camera);
+    }
     frameN++;
     const now=performance.now();
     if(now-lastFps>500){
@@ -897,7 +1029,9 @@ async function initOptics(){
   ST.running=true;
   btn.textContent='Live'; btn.classList.add('go'); btn.disabled=false;
   document.getElementById('b-snap').disabled=false;
-  showHint('Hold still & face forward, then tap Calibrate');
+  document.getElementById('lore').style.opacity='0';
+  if(ST.mode==='filter') showHint('Close filter live · adjust Grid to taste');
+  else showHint('Hold still & face forward, then tap Calibrate');
 }
 
 function onResults(res){
@@ -965,15 +1099,17 @@ function wireUI(){
   const bind=(id,key,fmt)=>{
     const el=document.getElementById(id), v=document.getElementById('v-'+id.slice(2));
     el.oninput=()=>{ST[key]=+el.value; if(v)v.textContent=fmt?fmt(+el.value):el.value;
-      // live updates
+      // filter mode: opacity slider drives photo<->mosaic blend
+      if(key==='opacity'&&filterMat) filterMat.uniforms.uStyle.value=+el.value;
       if(ST.calibrated){
         if(key==='amt'){ if(knotSys)buildPointSystem(); }
-        else if(key==='grid'){ /* uniform updates in loop */ }
       }
     };
   };
   bind('s-depth','depth'); bind('s-amt','amt'); bind('s-pulse','pulse');
   bind('s-grid','grid'); bind('s-op','opacity'); bind('s-smooth','smooth');
+  // init filter style from opacity default
+  setTimeout(()=>{ if(filterMat) filterMat.uniforms.uStyle.value=ST.opacity; },100);
 }
 
 // boot
